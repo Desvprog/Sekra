@@ -7,7 +7,6 @@ Acesse em http://localhost:8765 após iniciar.
 import sys
 import threading
 import time
-import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -312,12 +311,6 @@ app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 # Entrypoint
 # ────────────────────────────────────────────────────────────────────────────
 
-def abrir_navegador():
-    time.sleep(1.2)
-    webbrowser.open(f"http://localhost:{PORT}")
-
-
 if __name__ == "__main__":
-    threading.Thread(target=abrir_navegador, daemon=True).start()
     print(f"\n🌐 Servidor em http://localhost:{PORT}\n")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
