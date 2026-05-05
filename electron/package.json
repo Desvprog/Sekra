@@ -1,0 +1,31 @@
+{
+  "name": "reunioes",
+  "version": "1.0.0",
+  "description": "Gravação e transcrição de reuniões",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "build": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.reunioes.app",
+    "productName": "Reuniões",
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility",
+      "maintainer": "tereza@anne.today"
+    },
+    "extraResources": [
+      {
+        "from": "../dist/server",
+        "to": "server",
+        "filter": ["**/*"]
+      }
+    ],
+    "files": ["main.js"]
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

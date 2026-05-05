@@ -1,0 +1,7 @@
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.13.3
+faster-whisper==1.2.1
+rapidfuzz>=3.0
+# Diarização (opcional — requer token Hugging Face)
+# pyannote.audio>=3.1

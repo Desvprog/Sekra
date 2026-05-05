@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+dist/
+build/
+*.egg-info/
+
+# PyInstaller
+*.spec.bak
+
+# Dados do usuário
+reunioes/
+
+# Electron
+electron/node_modules/
+electron/dist/
+
+# Editor / sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Segredos
+.env
+.env.local

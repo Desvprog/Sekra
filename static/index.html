@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reuniões</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎙️</text></svg>">
+</head>
+<body>
+  <header>
+    <h1>🎙️ Reuniões</h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div id="status-badge" class="status-idle">ocioso</div>
+      <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
+    </div>
+  </header>
+
+  <div id="banner-erro" hidden>
+    <span id="banner-erro-msg"></span>
+    <button onclick="limparErro()">Dispensar</button>
+  </div>
+
+  <section id="painel-gravar">
+    <div class="form-row">
+      <input type="text" id="titulo" placeholder="Título da reunião" value="reuniao">
+      <select id="modelo">
+        <option value="small">small (rápido)</option>
+        <option value="medium" selected>medium</option>
+        <option value="large-v3">large-v3 (preciso)</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label class="check">
+        <input type="checkbox" id="diarizar"> Diarizar (quem falou o quê)
+      </label>
+      <input type="text" id="hotwords" placeholder="hotwords: patrick, zelo, lgpd">
+    </div>
+    <div class="form-row actions">
+      <button id="btn-iniciar" class="primary">● INICIAR GRAVAÇÃO</button>
+      <button id="btn-parar" class="danger" hidden>⏹ PARAR</button>
+      <span id="cronometro" hidden>00:00</span>
+    </div>
+    <p id="msg-status" class="msg"></p>
+  </section>
+
+  <main>
+    <aside id="lista-reunioes">
+      <h2>Reuniões</h2>
+      <ul id="ul-reunioes"><li class="vazio">carregando...</li></ul>
+    </aside>
+
+    <section id="detalhes">
+      <div id="placeholder">
+        <p>Selecione uma reunião à esquerda<br>ou inicie uma nova gravação acima.</p>
+      </div>
+
+      <div id="conteudo" hidden>
+        <div class="det-header">
+          <div>
+            <h2 id="det-titulo"></h2>
+            <p id="det-meta" class="meta"></p>
+          </div>
+          <button id="btn-excluir" class="danger-outline" title="Excluir reunião">🗑 Excluir</button>
+          <div id="confirm-excluir" style="display:none;align-items:center;gap:8px;">
+            <span style="font-size:12px;color:var(--text-2)">Excluir?</span>
+            <button class="danger" onclick="confirmarExcluir()">Confirmar</button>
+            <button onclick="cancelarConfirmacaoExcluir()">Cancelar</button>
+          </div>
+        </div>
+
+        <audio id="player" controls></audio>
+
+        <div class="tabs">
+          <button class="tab ativa" data-tab="transcricao">Transcrição</button>
+          <button class="tab" data-tab="hotwords">Hotwords</button>
+          <button class="tab" data-tab="reprocessar">Reprocessar</button>
+        </div>
+
+        <div class="tab-content" id="tab-transcricao">
+          <div id="transcricao-render"></div>
+        </div>
+
+        <div class="tab-content" id="tab-hotwords" hidden>
+          <div id="hotwords-render"></div>
+        </div>
+
+        <div class="tab-content" id="tab-reprocessar" hidden>
+          <p class="dica">Reprocessa os arquivos de áudio existentes com novas opções.</p>
+          <div class="form-row">
+            <select id="re-modelo">
+              <option value="small">small</option>
+              <option value="medium" selected>medium</option>
+              <option value="large-v3">large-v3</option>
+            </select>
+            <label class="check">
+              <input type="checkbox" id="re-diarizar"> Diarizar
+            </label>
+          </div>
+          <div class="form-row">
+            <input type="text" id="re-hotwords" placeholder="hotwords (opcional)">
+          </div>
+          <button id="btn-reprocessar" class="primary">Reprocessar</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
