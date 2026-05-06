@@ -23,7 +23,7 @@ As gravações ficam em `reunioes/` dentro do próprio projeto (dev) ou em `~/re
 ## Pré-requisitos do sistema
 
 ```bash
-sudo apt install ffmpeg pulseaudio-utils python3-venv nodejs npm
+sudo apt install ffmpeg pulseaudio-utils python3-venv nodejs npm python3-venv python3-pip
 ```
 
 ## Setup (desenvolvimento)
@@ -31,10 +31,12 @@ sudo apt install ffmpeg pulseaudio-utils python3-venv nodejs npm
 ```bash
 # 1. Ambiente Python
 python3 -m venv .venv
+source .venv/bin/activate
 .venv/bin/pip install -r requirements.txt
+pip install pyannote.audio
 
 # 2. Dependências Electron
-cd electron && npm install && cd ..
+cd electron && npm install
 ```
 
 ## Rodar
