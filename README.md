@@ -35,6 +35,14 @@ source .venv/bin/activate
 .venv/bin/pip install -r requirements.txt
 pip install pyannote.audio
 
+# 2. Huggingface                                                                                                                   
+  - Acesse https://huggingface.co/pyannote/speaker-diarization-3.1 e aceite os termos                                                                                                         
+  - Crie um token em https://huggingface.co/settings/tokens                                                                                                                                   
+
+ — Salvar o token:                                                                                                                                                                   
+  mkdir -p ~/.config/reunioes                                                                                                                                                                 
+  echo "hf_SEU_TOKEN_AQUI" > ~/.config/reunioes/hf_token
+
 # 2. Dependências Electron
 cd electron && npm install
 ```
