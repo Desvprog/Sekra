@@ -43,7 +43,7 @@ pip install pyannote.audio
   mkdir -p ~/.config/reunioes                                                                                                                                                                 
   echo "hf_SEU_TOKEN_AQUI" > ~/.config/reunioes/hf_token
 
-# 2. Dependências Electron
+# 3. Dependências Electron
 cd electron && npm install
 ```
 
