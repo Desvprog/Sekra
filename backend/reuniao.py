@@ -255,7 +255,14 @@ def diarizar(audio: Path) -> list[tuple[float, float, str]]:
     if pipeline is None:
         raise RuntimeError("Falha ao carregar pipeline. Verifique token e termos aceitos.")
 
-    diarization = pipeline(str(audio))
+    result = pipeline(str(audio))
+    # pyannote 3.x+ pode retornar DiarizeOutput em vez de Annotation diretamente
+    if hasattr(result, "itertracks"):
+        diarization = result
+    elif hasattr(result, "diarization"):
+        diarization = result.diarization
+    else:
+        diarization = result[0]
     return [
         (turn.start, turn.end, speaker)
         for turn, _, speaker in diarization.itertracks(yield_label=True)
