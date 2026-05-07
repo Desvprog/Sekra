@@ -250,7 +250,7 @@ def diarizar(audio: Path) -> list[tuple[float, float, str]]:
     token = carregar_hf_token()
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=token,
+        token=token,
     )
     if pipeline is None:
         raise RuntimeError("Falha ao carregar pipeline. Verifique token e termos aceitos.")
