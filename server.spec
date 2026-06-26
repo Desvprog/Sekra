@@ -10,14 +10,33 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH)
 
+# Coleta dependências do pyannote/faster-whisper de forma robusta, com fallback seguro.
+# Se algum pacote não estiver instalado no ambiente de build, o bloco é ignorado.
+from PyInstaller.utils.hooks import collect_all, collect_submodules
+hidden_extra = []
+datas_extra = []
+binaries_extra = []
+for _pkg in ("pyannote", "pyannote.audio", "lightning_fabric", "speechbrain", "asteroid_filterbanks"):
+    try:
+        d, b, h = collect_all(_pkg)
+        datas_extra += d; binaries_extra += b; hidden_extra += h
+    except Exception:
+        pass
+
 a = Analysis(
     [str(ROOT / "backend" / "server.py")],
     pathex=[str(ROOT / "backend")],
-    binaries=[],
+    binaries=binaries_extra,
     datas=[
         (str(ROOT / "static"), "static"),
         (str(ROOT / "backend" / "reuniao.py"), "."),
-    ],
+        (str(ROOT / "backend" / "config.py"), "."),
+        (str(ROOT / "backend" / "meta.py"), "."),
+        (str(ROOT / "backend" / "llm.py"), "."),
+        (str(ROOT / "backend" / "resumo.py"), "."),
+        (str(ROOT / "backend" / "busca.py"), "."),
+        (str(ROOT / "backend" / "exportar.py"), "."),
+    ] + datas_extra,
     hiddenimports=[
         "uvicorn.logging",
         "uvicorn.loops",
@@ -36,7 +55,17 @@ a = Analysis(
         "anyio",
         "anyio._backends._asyncio",
         "asyncio",
-    ],
+        # Novos módulos backend
+        "config",
+        "meta",
+        "llm",
+        "resumo",
+        "busca",
+        "exportar",
+        # Dependências LLM
+        "anthropic",
+        "httpx",
+    ] + hidden_extra,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
