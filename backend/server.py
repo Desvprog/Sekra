@@ -4,6 +4,7 @@ Servidor web local para gerenciar gravação e transcrição de reuniões.
 Acesse em http://localhost:8765 após iniciar.
 """
 
+import queue
 import sys
 import threading
 import time
@@ -18,6 +19,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import reuniao
+import config
+import meta
+import busca
+import exportar
+import resumo
 
 PORT = 8654
 # Quando empacotado pelo PyInstaller, arquivos de dados ficam em sys._MEIPASS
@@ -34,13 +40,20 @@ app = FastAPI(title="Reuniões")
 class Estado:
     def __init__(self):
         self.lock = threading.Lock()
+        # Campos de gravação
         self.gravando = False
-        self.processando = False
         self.titulo: Optional[str] = None
         self.inicio: Optional[float] = None
         self.pasta: Optional[Path] = None
         self.proc = None
         self.opcoes: dict = {}
+        # Campos de processamento (worker)
+        self.processando: bool = False
+        self.titulo_processando: Optional[str] = None
+        self.pasta_processando: Optional[Path] = None
+        self.fila: queue.Queue = queue.Queue()
+        self.pendentes: list[dict] = []  # cada item: {"titulo": str, "id": str}
+        # Mensagens
         self.msg = ""
         self.erro: Optional[str] = None
 
@@ -49,9 +62,12 @@ class Estado:
             duracao = int(time.time() - self.inicio) if self.gravando and self.inicio else 0
             return {
                 "gravando": self.gravando,
-                "processando": self.processando,
-                "titulo": self.titulo,
                 "duracao_s": duracao,
+                "titulo": self.titulo,
+                "processando": self.processando,
+                "titulo_processando": self.titulo_processando,
+                "fila": [p["titulo"] for p in self.pendentes],
+                "fila_tamanho": len(self.pendentes),
                 "msg": self.msg,
                 "erro": self.erro,
             }
@@ -73,6 +89,73 @@ estado = Estado()
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Fila de processamento serial + worker thread
+# ────────────────────────────────────────────────────────────────────────────
+
+def enfileirar(pasta: Path, titulo: str, modelo: str,
+               diarizar: bool, hotwords: list, idioma: Optional[str] = None) -> int:
+    """Adiciona um item à fila de processamento. Retorna a posição (nº de pendentes)."""
+    item = {
+        "pasta": pasta,
+        "titulo": titulo,
+        "modelo": modelo,
+        "diarizar": diarizar,
+        "hotwords": hotwords,
+        "idioma": idioma,
+        "id": str(pasta),
+    }
+    with estado.lock:
+        estado.pendentes.append({"titulo": titulo, "id": str(pasta)})
+        n = len(estado.pendentes)
+    estado.fila.put(item)
+    return n
+
+
+def _worker_loop():
+    while True:
+        item = estado.fila.get()  # bloqueia até haver item
+
+        # Gravação tem prioridade: espera enquanto houver gravação ativa.
+        # Um item já em andamento NÃO é interrompido — apenas não se inicia
+        # um novo item enquanto estiver gravando.
+        while True:
+            with estado.lock:
+                gravando = estado.gravando
+            if not gravando:
+                break
+            time.sleep(1)
+
+        # Remove este item dos pendentes e marca processando
+        with estado.lock:
+            estado.pendentes = [p for p in estado.pendentes if p["id"] != item["id"]]
+            estado.processando = True
+            estado.titulo_processando = item["titulo"]
+            estado.pasta_processando = item["pasta"]
+            estado.erro = None
+            estado.msg = "Processando..."
+
+        try:
+            reuniao.processar(
+                item["pasta"], item["titulo"], item["modelo"],
+                item["diarizar"], item["hotwords"],
+                progress_cb=estado.set_msg, idioma=item["idioma"]
+            )
+        except BaseException as e:
+            estado.set_erro(str(e) or type(e).__name__)
+        finally:
+            with estado.lock:
+                estado.processando = False
+                estado.titulo_processando = None
+                estado.pasta_processando = None
+                estado.msg = ""
+            estado.fila.task_done()
+
+
+# Inicia o worker (daemon) uma única vez ao carregar o módulo
+threading.Thread(target=_worker_loop, daemon=True).start()
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Schemas de entrada
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -81,12 +164,23 @@ class IniciarBody(BaseModel):
     modelo: str = "medium"
     diarizar: bool = False
     hotwords: str = ""
+    idioma: Optional[str] = None
 
 
 class ReprocessarBody(BaseModel):
     modelo: str = "medium"
     diarizar: bool = False
     hotwords: str = ""
+    idioma: Optional[str] = None
+
+
+class ConfigBody(BaseModel):
+    model_config = {"extra": "allow"}
+
+
+class PatchReuniaoBody(BaseModel):
+    titulo: Optional[str] = None
+    speaker_nomes: Optional[dict] = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -99,16 +193,30 @@ def parsear_hotwords(s: str) -> list[str]:
 
 def _info_audio(pasta: Path) -> Optional[dict]:
     """Retorna info de áudio da pasta ou None se não houver nenhum arquivo."""
-    p_mix = pasta / "audio.wav"
-    p_mic = pasta / "audio-mic.wav"
-    p_loop = pasta / "audio-loopback.wav"
+    # Suporta .wav e .opus para cada base
+    extensoes = [".wav", ".opus"]
+    bases = ["audio", "audio-mic", "audio-loopback"]
 
-    if p_mix.exists() and p_mix.stat().st_size > reuniao.MIN_AUDIO_BYTES:
+    def _encontrar(base: str):
+        for ext in extensoes:
+            p = pasta / f"{base}{ext}"
+            if p.exists():
+                return p
+        return None
+
+    p_mix = _encontrar("audio")
+
+    if p_mix is not None and p_mix.stat().st_size > reuniao.MIN_AUDIO_BYTES:
         return {"tamanho_mb": round(p_mix.stat().st_size / 1024 / 1024, 1),
                 "audio_incompleto": False}
 
     # Gravação interrompida — verifica arquivos parciais
-    parciais = [p for p in (p_mix, p_mic, p_loop) if p.exists() and p.stat().st_size > 0]
+    parciais = []
+    for base in bases:
+        p = _encontrar(base)
+        if p is not None and p.stat().st_size > 0:
+            parciais.append(p)
+
     if not parciais:
         return None
     tamanho = max(p.stat().st_size for p in parciais)
@@ -132,7 +240,13 @@ def listar_reunioes_fs() -> list[dict]:
                 continue
             partes = r.name.split("-")
             hora = f"{partes[0]}:{partes[1]}" if len(partes) >= 2 else "??:??"
-            titulo = "-".join(partes[2:]) if len(partes) > 2 else r.name
+            titulo_parsed = "-".join(partes[2:]) if len(partes) > 2 else r.name
+
+            m = meta.ler(r)
+            titulo = m.get("titulo") if m.get("titulo") else titulo_parsed
+            duracao_s = m.get("duracao_s")
+            duracao_fmt = meta.fmt_duracao(duracao_s) if duracao_s is not None else None
+
             out.append({
                 "id": f"{dia.name}/{r.name}",
                 "data": dia.name,
@@ -142,6 +256,11 @@ def listar_reunioes_fs() -> list[dict]:
                 "audio_incompleto": info["audio_incompleto"],
                 "tem_transcricao": (r / "transcricao.txt").exists(),
                 "tem_hotwords": (r / "hotwords.md").exists(),
+                "tem_resumo": (r / "resumo.md").exists(),
+                "duracao_s": duracao_s,
+                "duracao_fmt": duracao_fmt,
+                "idioma": m.get("idioma"),
+                "num_speakers": m.get("num_speakers"),
             })
     return out
 
@@ -151,25 +270,6 @@ def pasta_da_reuniao(data: str, slug: str) -> Path:
     if not p.is_dir():
         raise HTTPException(404, f"Reunião não encontrada: {data}/{slug}")
     return p
-
-
-def rodar_processamento_em_thread(pasta: Path, titulo: str, modelo: str,
-                                   diarizar: bool, hotwords: list[str]) -> None:
-    """Roda processar() em thread separada, atualizando estado."""
-    def alvo():
-        try:
-            estado.limpar_erro()
-            reuniao.processar(pasta, titulo, modelo, diarizar, hotwords,
-                              progress_cb=estado.set_msg)
-        except BaseException as e:
-            estado.set_erro(str(e) or type(e).__name__)
-        finally:
-            with estado.lock:
-                estado.processando = False
-                estado.titulo = None
-                estado.msg = ""
-
-    threading.Thread(target=alvo, daemon=True).start()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -194,10 +294,14 @@ def listar():
 
 @app.get("/api/reunioes/{data}/{slug}/audio")
 def audio(data: str, slug: str):
-    p = pasta_da_reuniao(data, slug) / "audio.wav"
-    if not p.exists():
-        raise HTTPException(404)
-    return FileResponse(p, media_type="audio/wav")
+    pasta = pasta_da_reuniao(data, slug)
+    p_wav = pasta / "audio.wav"
+    p_opus = pasta / "audio.opus"
+    if p_wav.exists():
+        return FileResponse(p_wav, media_type="audio/wav")
+    if p_opus.exists():
+        return FileResponse(p_opus, media_type="audio/ogg")
+    raise HTTPException(404)
 
 
 @app.get("/api/reunioes/{data}/{slug}/transcricao")
@@ -216,11 +320,66 @@ def hotwords_endpoint(data: str, slug: str):
     return {"texto": p.read_text(encoding="utf-8")}
 
 
+@app.get("/api/reunioes/{data}/{slug}/meta")
+def meta_endpoint(data: str, slug: str):
+    pasta = pasta_da_reuniao(data, slug)
+    return meta.ler(pasta)
+
+
+@app.patch("/api/reunioes/{data}/{slug}")
+def patch_reuniao(data: str, slug: str, body: PatchReuniaoBody):
+    pasta = pasta_da_reuniao(data, slug)
+    campos = {}
+    if body.titulo is not None:
+        campos["titulo"] = body.titulo
+    if body.speaker_nomes is not None:
+        campos["speaker_nomes"] = body.speaker_nomes
+    if campos:
+        return meta.escrever(pasta, **campos)
+    return meta.ler(pasta)
+
+
+@app.get("/api/reunioes/{data}/{slug}/resumo")
+def get_resumo(data: str, slug: str):
+    p = pasta_da_reuniao(data, slug) / "resumo.md"
+    if not p.exists():
+        return JSONResponse({"texto": None}, status_code=404)
+    return {"texto": p.read_text(encoding="utf-8")}
+
+
+@app.post("/api/reunioes/{data}/{slug}/resumo")
+def post_resumo(data: str, slug: str):
+    pasta = pasta_da_reuniao(data, slug)
+    try:
+        p = resumo.gerar_e_salvar(pasta)
+    except Exception as e:
+        raise HTTPException(503, str(e))
+    if p is None:
+        raise HTTPException(404, "Sem transcrição para resumir")
+    meta.escrever(pasta, tem_resumo=True)
+    return {"texto": p.read_text(encoding="utf-8")}
+
+
+@app.post("/api/reunioes/{data}/{slug}/exportar")
+def exportar_endpoint(data: str, slug: str):
+    cfg = config.carregar()
+    destino = cfg.get("export_dir", "")
+    if not destino:
+        raise HTTPException(400, "Configure o diretório de export nas Configurações")
+    pasta = pasta_da_reuniao(data, slug)
+    try:
+        arq = exportar.exportar(pasta, f"{data}/{slug}", Path(destino))
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return {"destino": str(arq)}
+
+
 @app.post("/api/gravar/iniciar")
 def iniciar(body: IniciarBody):
     with estado.lock:
-        if estado.gravando or estado.processando:
-            raise HTTPException(409, "Já existe gravação ou processamento ativo")
+        # Bloqueia APENAS se já houver gravação ativa — nunca por processamento
+        if estado.gravando:
+            raise HTTPException(409, "Já existe uma gravação ativa")
 
         agora = datetime.now()
         titulo_limpo = body.titulo.replace(" ", "-").lower() or "reuniao"
@@ -234,6 +393,11 @@ def iniciar(body: IniciarBody):
         except SystemExit as e:
             raise HTTPException(500, str(e))
 
+        # Fallback de hotwords para hotwords_padrao da config
+        hotwords_lista = parsear_hotwords(body.hotwords)
+        if not hotwords_lista:
+            hotwords_lista = config.carregar().get("hotwords_padrao", [])
+
         estado.gravando = True
         estado.titulo = body.titulo
         estado.inicio = time.time()
@@ -241,8 +405,9 @@ def iniciar(body: IniciarBody):
         estado.proc = proc
         estado.opcoes = {
             "diarizar": body.diarizar,
-            "hotwords": parsear_hotwords(body.hotwords),
+            "hotwords": hotwords_lista,
             "modelo": body.modelo,
+            "idioma": body.idioma,
         }
         estado.msg = "Gravando..."
 
@@ -258,18 +423,22 @@ def parar():
         pasta = estado.pasta
         opcoes = estado.opcoes
         titulo = estado.titulo
+        # Limpa APENAS o estado de gravação; não mexe em processando
         estado.gravando = False
         estado.proc = None
-        estado.processando = True
+        estado.titulo = None
+        estado.inicio = None
+        estado.pasta = None
         estado.msg = "Finalizando gravação..."
 
     reuniao.parar_gravacao(proc)
 
-    rodar_processamento_em_thread(
+    pos = enfileirar(
         pasta, titulo, opcoes["modelo"],
-        opcoes["diarizar"], opcoes["hotwords"]
+        opcoes["diarizar"], opcoes["hotwords"],
+        opcoes.get("idioma")
     )
-    return {"ok": True}
+    return {"ok": True, "fila_tamanho": pos}
 
 
 @app.post("/api/reunioes/{data}/{slug}/excluir")
@@ -277,8 +446,13 @@ def excluir(data: str, slug: str):
     import shutil
     pasta = pasta_da_reuniao(data, slug)
     with estado.lock:
-        if estado.pasta == pasta and (estado.gravando or estado.processando):
-            raise HTTPException(409, "Não é possível excluir uma reunião em andamento")
+        em_uso = (
+            (estado.pasta == pasta and estado.gravando)
+            or (estado.processando and estado.pasta_processando == pasta)
+            or any(p["id"] == str(pasta) for p in estado.pendentes)
+        )
+    if em_uso:
+        raise HTTPException(409, "Não é possível excluir uma reunião em gravação/processamento/fila")
     shutil.rmtree(pasta)
     return {"ok": True}
 
@@ -286,18 +460,35 @@ def excluir(data: str, slug: str):
 @app.post("/api/reunioes/{data}/{slug}/reprocessar")
 def reprocessar(data: str, slug: str, body: ReprocessarBody):
     pasta = pasta_da_reuniao(data, slug)
-    with estado.lock:
-        if estado.gravando or estado.processando:
-            raise HTTPException(409, "Já existe operação ativa")
-        estado.processando = True
-        estado.titulo = slug
-        estado.msg = "Reprocessando..."
-
-    rodar_processamento_em_thread(
+    pos = enfileirar(
         pasta, slug, body.modelo, body.diarizar,
-        parsear_hotwords(body.hotwords)
+        parsear_hotwords(body.hotwords),
+        body.idioma
     )
-    return {"ok": True}
+    return {"ok": True, "fila_tamanho": pos}
+
+
+@app.get("/api/config")
+def get_config():
+    return config.carregar()
+
+
+@app.post("/api/config")
+def post_config(body: ConfigBody):
+    return config.salvar(body.model_dump(exclude_unset=True))
+
+
+@app.get("/api/llm/status")
+def llm_status():
+    import llm
+    return llm.info()
+
+
+@app.get("/api/buscar")
+def buscar_endpoint(q: str = ""):
+    if not q:
+        return []
+    return busca.buscar(q, reuniao.BASE_DIR)
 
 
 # ────────────────────────────────────────────────────────────────────────────

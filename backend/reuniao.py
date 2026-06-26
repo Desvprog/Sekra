@@ -17,6 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
+import config
+import meta
+import resumo
+import llm
+
 # Em dev usa a pasta do projeto; em produção (PyInstaller) usa ~/reunioes
 if hasattr(sys, "_MEIPASS"):
     BASE_DIR = Path.home() / "reunioes"
@@ -205,24 +210,112 @@ def recuperar_audio(pasta: Path,
 # Transcrição (faster-whisper)
 # ────────────────────────────────────────────────────────────────────────────
 
-def transcrever(audio: Path, modelo: str, label_speaker: str = "?") -> list[Segmento]:
+_modelo_cache: dict = {"nome": None, "obj": None}
+
+
+def _get_whisper(modelo: str):
+    """Retorna WhisperModel do cache; recria apenas se o modelo mudou."""
     try:
         from faster_whisper import WhisperModel
     except ImportError:
         sys.exit("❌ Instale: pip install faster-whisper")
 
-    model = WhisperModel(modelo, device="cpu", compute_type="int8")
-    segments_iter, _ = model.transcribe(
+    if _modelo_cache["nome"] != modelo or _modelo_cache["obj"] is None:
+        _modelo_cache["obj"] = WhisperModel(modelo, device="cpu", compute_type="int8")
+        _modelo_cache["nome"] = modelo
+    return _modelo_cache["obj"]
+
+
+def transcrever(audio: Path, modelo: str, label_speaker: str = "?",
+                idioma: Optional[str] = None) -> tuple[list[Segmento], Optional[str]]:
+    """
+    Transcreve audio com faster-whisper.
+    idioma=None → detecção automática pelo Whisper.
+    Retorna (lista_segmentos, idioma_detectado).
+    """
+    model = _get_whisper(modelo)
+    segments_iter, info = model.transcribe(
         str(audio),
-        language="pt",
+        language=idioma,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         beam_size=5,
     )
-    return [
+    idioma_detectado = getattr(info, "language", None)
+    segs = [
         Segmento(start=s.start, end=s.end, text=s.text.strip(), speaker=label_speaker)
         for s in segments_iter
     ]
+    return segs, idioma_detectado
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Compressão / descompressão de áudio
+# ────────────────────────────────────────────────────────────────────────────
+
+def _fonte_audio(pasta: Path, base: str) -> Optional[Path]:
+    """Retorna o Path existente preferindo .wav, senão .opus, senão None."""
+    wav = pasta / f"{base}.wav"
+    opus = pasta / f"{base}.opus"
+    if wav.exists():
+        return wav
+    if opus.exists():
+        return opus
+    return None
+
+
+def comprimir_audios(pasta: Path, bitrate: str = "32k") -> None:
+    """
+    Para cada base (audio, audio-mic, audio-loopback): se existe .wav,
+    converte para .opus via ffmpeg e remove o .wav apenas se o .opus foi gerado.
+    """
+    for base in ("audio", "audio-mic", "audio-loopback"):
+        wav = pasta / f"{base}.wav"
+        opus = pasta / f"{base}.opus"
+        if not wav.exists():
+            continue
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(wav),
+                 "-c:a", "libopus", "-b:a", bitrate, str(opus)],
+                capture_output=True, timeout=600,
+            )
+            if opus.exists() and opus.stat().st_size > 0:
+                wav.unlink(missing_ok=True)
+            else:
+                print(f"[reuniao] Compressão falhou para {wav.name}: opus vazio")
+        except FileNotFoundError:
+            print("[reuniao] ffmpeg não encontrado — compressão ignorada")
+        except subprocess.TimeoutExpired:
+            print(f"[reuniao] Timeout ao comprimir {wav.name}")
+
+
+def garantir_wavs(pasta: Path) -> list[Path]:
+    """
+    Para cada base: se NÃO existe .wav mas existe .opus, recria o .wav.
+    Retorna a lista dos .wav criados nesta chamada (para apagar depois).
+    """
+    criados: list[Path] = []
+    for base in ("audio", "audio-mic", "audio-loopback"):
+        wav = pasta / f"{base}.wav"
+        opus = pasta / f"{base}.opus"
+        if wav.exists() or not opus.exists():
+            continue
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(opus),
+                 "-ac", "1", "-ar", str(SAMPLE_RATE), str(wav)],
+                capture_output=True, timeout=600,
+            )
+            if wav.exists() and wav.stat().st_size > 0:
+                criados.append(wav)
+            else:
+                print(f"[reuniao] Descompressão falhou para {opus.name}")
+        except FileNotFoundError:
+            print("[reuniao] ffmpeg não encontrado — descompressão ignorada")
+        except subprocess.TimeoutExpired:
+            print(f"[reuniao] Timeout ao descomprimir {opus.name}")
+    return criados
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -381,7 +474,8 @@ def renomear_speakers(segs: list[Segmento], mapa: dict[str, str]) -> None:
 
 def processar(pasta: Path, titulo: str, modelo: str,
               diarizar_flag: bool, hotwords: list[str],
-              progress_cb: Optional[Callable[[str], None]] = None) -> dict:
+              progress_cb: Optional[Callable[[str], None]] = None,
+              idioma: Optional[str] = None) -> dict:
     """
     Orquestra transcrição + diarização + hotwords.
     progress_cb recebe mensagens curtas de status (pra UI).
@@ -395,38 +489,97 @@ def processar(pasta: Path, titulo: str, modelo: str,
         else:
             print(f"   {msg}")
 
-    if not recuperar_audio(pasta, progress_cb):
-        raise RuntimeError(
-            "Nenhum arquivo de áudio utilizável encontrado nesta pasta. "
-            "A gravação pode ter sido interrompida antes de qualquer dado ser salvo."
+    # Resolve configuração e idioma efetivo
+    cfg = config.carregar()
+    if idioma is None:
+        idioma = cfg.get("idioma", "auto")
+    idioma_efetivo = None if idioma == "auto" else idioma
+
+    # Recompõe wavs se reunião já foi comprimida anteriormente
+    wavs_temp = garantir_wavs(pasta)
+
+    try:
+        if not recuperar_audio(pasta, progress_cb):
+            raise RuntimeError(
+                "Nenhum arquivo de áudio utilizável encontrado nesta pasta. "
+                "A gravação pode ter sido interrompida antes de qualquer dado ser salvo."
+            )
+
+        idioma_detectado: Optional[str] = None
+
+        if diarizar_flag:
+            report("Transcrevendo sua voz...")
+            segs_mic, _ = transcrever(p_mic, modelo, label_speaker="Eu",
+                                      idioma=idioma_efetivo)
+            report("Transcrevendo demais participantes...")
+            segs_loop, idi = transcrever(p_loop, modelo, idioma=idioma_efetivo)
+            idioma_detectado = idi
+            report("Identificando falantes...")
+            turnos = diarizar(p_loop)
+            segs_loop = aplicar_diarizacao(segs_loop, turnos)
+            speakers_unicos = sorted(set(s.speaker for s in segs_loop
+                                         if s.speaker != "?"))
+            mapa = {sp: f"Pessoa {i+1}" for i, sp in enumerate(speakers_unicos)}
+            renomear_speakers(segs_loop, mapa)
+            todos_segs = segs_mic + segs_loop
+        else:
+            report("Transcrevendo...")
+            todos_segs, idioma_detectado = transcrever(p_mix, modelo,
+                                                       idioma=idioma_efetivo)
+
+        p_txt = pasta / "transcricao.txt"
+        escrever_transcricao(todos_segs, p_txt, titulo, modelo)
+
+        p_hw = None
+        if hotwords:
+            report("Buscando hotwords...")
+            matches = encontrar_hotwords(todos_segs, hotwords)
+            p_hw = pasta / "hotwords.md"
+            escrever_hotwords(matches, p_hw, hotwords)
+
+        # Grava meta.json com informações da transcrição
+        fonte = _fonte_audio(pasta, "audio") or p_mix
+        speakers = sorted({s.speaker for s in todos_segs})
+        meta.escrever(
+            pasta,
+            titulo=titulo,
+            modelo=modelo,
+            idioma=idioma_detectado,
+            num_segmentos=len(todos_segs),
+            num_speakers=len(speakers),
+            speakers=speakers,
+            duracao_s=meta.duracao_audio(fonte),
+            status="concluido",
+            tem_transcricao=True,
+            tem_hotwords=bool(hotwords),
+            tem_resumo=False,
+            audio_comprimido=bool(cfg.get("comprimir_audio")),
+            criado_em=datetime.now().isoformat(timespec="seconds"),
         )
 
-    if diarizar_flag:
-        report("Transcrevendo sua voz...")
-        segs_mic = transcrever(p_mic, modelo, label_speaker="Eu")
-        report("Transcrevendo demais participantes...")
-        segs_loop = transcrever(p_loop, modelo)
-        report("Identificando falantes...")
-        turnos = diarizar(p_loop)
-        segs_loop = aplicar_diarizacao(segs_loop, turnos)
-        speakers_unicos = sorted(set(s.speaker for s in segs_loop
-                                     if s.speaker != "?"))
-        mapa = {sp: f"Pessoa {i+1}" for i, sp in enumerate(speakers_unicos)}
-        renomear_speakers(segs_loop, mapa)
-        todos_segs = segs_mic + segs_loop
-    else:
-        report("Transcrevendo...")
-        todos_segs = transcrever(p_mix, modelo)
+        # Resumo automático
+        if cfg.get("resumo_automatico"):
+            try:
+                report("Gerando resumo...")
+                if resumo.gerar_e_salvar(pasta):
+                    meta.escrever(pasta, tem_resumo=True)
+            except Exception as e:
+                report(f"Resumo não gerado: {e}")
 
-    p_txt = pasta / "transcricao.txt"
-    escrever_transcricao(todos_segs, p_txt, titulo, modelo)
+        # Compressão de áudio ao final
+        if cfg.get("comprimir_audio"):
+            report("Comprimindo áudio...")
+            comprimir_audios(pasta, cfg.get("bitrate_opus", "32k"))
+        else:
+            # Reprocessamento: limpa wavs temporários que foram recriados de .opus
+            for w in wavs_temp:
+                w.unlink(missing_ok=True)
 
-    p_hw = None
-    if hotwords:
-        report("Buscando hotwords...")
-        matches = encontrar_hotwords(todos_segs, hotwords)
-        p_hw = pasta / "hotwords.md"
-        escrever_hotwords(matches, p_hw, hotwords)
+    except Exception:
+        # Garante limpeza dos wavs temporários em caso de erro
+        for w in wavs_temp:
+            w.unlink(missing_ok=True)
+        raise
 
     report("Pronto!")
     return {"transcricao": str(p_txt), "hotwords": str(p_hw) if p_hw else None}
