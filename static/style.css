@@ -76,6 +76,44 @@ header h1 { font-size: 18px; font-weight: 600; }
   border-radius: 4px;
 }
 
+/* ────────── Indicador de fila/processamento ────────── */
+#status-processamento {
+  background: rgba(210, 153, 34, 0.07);
+  border-bottom: 1px solid rgba(210, 153, 34, 0.2);
+  color: var(--text-2);
+  padding: 6px 24px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+#status-processamento .proc-label {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ────────── Feature 1: Toast de notificação ────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 360px;
+  word-break: break-word;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  animation: fadeInUp 0.2s ease;
+}
+.toast-info  { background: var(--bg-3); border: 1px solid var(--border); color: var(--text); }
+.toast-ok    { background: rgba(63, 185, 80, 0.15); border: 1px solid rgba(63,185,80,0.4); color: var(--success); }
+.toast-erro  { background: rgba(229, 72, 72, 0.15); border: 1px solid rgba(229,72,72,0.4); color: var(--danger); }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -93,6 +131,35 @@ header h1 { font-size: 18px; font-weight: 600; }
   line-height: 1;
 }
 .btn-toggle:hover { background: var(--bg-3); color: var(--text); }
+
+/* ────────── Botões ícone/label pequenos ────────── */
+.btn-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.btn-icon:hover { color: var(--text); background: var(--bg-3); }
+
+.btn-icon-label {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.btn-icon-label:hover:not(:disabled) { background: var(--bg-3); color: var(--text); }
+.btn-icon-label:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ────────── Painel de gravação ────────── */
 #painel-gravar {
@@ -200,6 +267,8 @@ aside {
   border-right: 1px solid var(--border);
   overflow-y: auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 aside h2, #detalhes h2 {
@@ -210,9 +279,60 @@ aside h2, #detalhes h2 {
   letter-spacing: 0.5px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-#ul-reunioes { list-style: none; }
+/* ────────── Feature 2: Filtro de reuniões ────────── */
+.filtro-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  flex-shrink: 0;
+}
+#filtro {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+}
+#filtro:focus { outline: none; border-color: var(--accent); }
+.btn-limpar-filtro {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 14px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+}
+.btn-limpar-filtro:hover { color: var(--text); background: var(--bg-3); }
+
+/* ────────── Feature 2: Resultados de busca ────────── */
+.busca-item { cursor: pointer; }
+.busca-trecho {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 4px;
+  padding: 4px 6px;
+  background: var(--bg);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.busca-speaker {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+#ul-reunioes { list-style: none; flex: 1; overflow-y: auto; }
 #ul-reunioes li {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -247,8 +367,9 @@ aside h2, #detalhes h2 {
   border-radius: 3px;
   font-size: 10px;
 }
-.tag.tem-trans { color: var(--success); }
-.tag.tem-hw { color: var(--accent); }
+.tag.tem-trans  { color: var(--success); }
+.tag.tem-hw     { color: var(--accent); }
+.tag.tem-resumo { color: var(--text-2); border: 1px solid var(--border); }
 .tag.audio-parcial { color: var(--warning); border: 1px solid rgba(210,153,34,0.3); }
 
 #ul-reunioes li.incompleta .r-titulo { color: var(--warning); }
@@ -278,11 +399,30 @@ aside h2, #detalhes h2 {
   gap: 12px;
 }
 
+/* Feature 5: wrapper do título editável */
+#titulo-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 #det-titulo {
   font-size: 18px !important;
   text-transform: none !important;
   letter-spacing: normal !important;
   color: var(--text) !important;
+}
+
+#titulo-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#input-titulo {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 4px 8px;
+  flex: 1;
 }
 
 .meta {
@@ -327,6 +467,13 @@ audio::-webkit-media-controls-panel { background: var(--bg-3); }
 
 .tab-content { padding: 16px; }
 
+/* ────────── Feature 7: toolbar da aba transcrição ────────── */
+.tab-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 #transcricao-render, #hotwords-render {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 13px;
@@ -340,8 +487,17 @@ audio::-webkit-media-controls-panel { background: var(--bg-3); }
   color: var(--accent);
   margin-top: 12px;
   margin-bottom: 4px;
+  border-radius: 3px;
+  padding: 2px 4px;
+  transition: background 0.1s;
 }
+.speaker-line:hover { background: rgba(74,158,255,0.08); }
 .speaker-eu { color: var(--eu); }
+.speaker-line:hover::after {
+  content: " ✏️";
+  font-size: 10px;
+  opacity: 0.6;
+}
 
 .timestamp {
   color: var(--text-2);
@@ -366,6 +522,110 @@ audio::-webkit-media-controls-panel { background: var(--bg-3); }
   margin-bottom: 12px;
   font-style: italic;
 }
+
+/* ────────── Feature 4: Aba Resumo ────────── */
+#resumo-render {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+.md-h {
+  color: var(--text);
+  margin: 12px 0 6px 0;
+  font-weight: 700;
+}
+h2.md-h { font-size: 16px; }
+h3.md-h { font-size: 14px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+h4.md-h { font-size: 13px; color: var(--text-2); }
+.md-p { margin: 4px 0; }
+.md-bullet {
+  padding: 2px 0 2px 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+#btn-gerar-resumo { margin-top: 8px; }
+
+/* ────────── Feature 9: Modal de Configurações ────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-config {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 440px;
+  max-width: 96vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.config-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.config-group.config-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.config-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.config-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
+}
+
+/* Status LLM no modal */
+.llm-status { font-size: 12px; padding: 6px 0; }
+.llm-ok   { color: var(--success); }
+.llm-warn { color: var(--warning); }
 
 /* ────────── Scrollbar ────────── */
 ::-webkit-scrollbar { width: 10px; }

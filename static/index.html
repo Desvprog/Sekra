@@ -12,6 +12,7 @@
     <h1>🎙️ Reuniões</h1>
     <div style="display:flex;align-items:center;gap:12px;">
       <div id="status-badge" class="status-idle">ocioso</div>
+      <button id="btn-config" class="btn-toggle" title="Configurações">⚙️</button>
       <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
     </div>
   </header>
@@ -21,6 +22,9 @@
     <button onclick="limparErro()">Dispensar</button>
   </div>
 
+  <!-- Toast de notificação inline (não bloqueia) -->
+  <div id="toast" class="toast" hidden></div>
+
   <section id="painel-gravar">
     <div class="form-row">
       <input type="text" id="titulo" placeholder="Título da reunião" value="reuniao">
@@ -28,6 +32,13 @@
         <option value="small">small (rápido)</option>
         <option value="medium" selected>medium</option>
         <option value="large-v3">large-v3 (preciso)</option>
+      </select>
+      <!-- Feature 11: idioma na gravação -->
+      <select id="idioma" title="Idioma da gravação">
+        <option value="auto" selected>auto</option>
+        <option value="pt">pt</option>
+        <option value="en">en</option>
+        <option value="es">es</option>
       </select>
     </div>
     <div class="form-row">
@@ -44,9 +55,17 @@
     <p id="msg-status" class="msg"></p>
   </section>
 
+  <!-- Indicador de fila/processamento — aparece quando há itens em processamento ou na fila -->
+  <div id="status-processamento" hidden></div>
+
   <main>
     <aside id="lista-reunioes">
       <h2>Reuniões</h2>
+      <!-- Feature 2: input de filtro/busca -->
+      <div class="filtro-wrap">
+        <input id="filtro" type="text" placeholder="Filtrar / buscar no conteúdo…" autocomplete="off">
+        <button id="btn-limpar-filtro" class="btn-limpar-filtro" title="Limpar busca" hidden>✕</button>
+      </div>
       <ul id="ul-reunioes"><li class="vazio">carregando...</li></ul>
     </aside>
 
@@ -57,10 +76,21 @@
 
       <div id="conteudo" hidden>
         <div class="det-header">
-          <div>
-            <h2 id="det-titulo"></h2>
+          <div style="flex:1;min-width:0;">
+            <!-- Feature 5: título editável -->
+            <div id="titulo-view" style="display:flex;align-items:center;gap:8px;">
+              <h2 id="det-titulo"></h2>
+              <button id="btn-editar-titulo" class="btn-icon" title="Editar título">✏️</button>
+            </div>
+            <div id="titulo-edit" style="display:none;align-items:center;gap:8px;">
+              <input id="input-titulo" type="text" style="font-size:16px;font-weight:600;">
+              <button id="btn-salvar-titulo" class="primary" style="padding:6px 12px;">✓</button>
+              <button id="btn-cancelar-titulo" style="padding:6px 12px;">✕</button>
+            </div>
             <p id="det-meta" class="meta"></p>
           </div>
+          <!-- Feature 8: botão Exportar -->
+          <button id="btn-exportar" class="btn-icon-label" title="Exportar reunião">↗ Exportar</button>
           <button id="btn-excluir" class="danger-outline" title="Excluir reunião">🗑 Excluir</button>
           <div id="confirm-excluir" style="display:none;align-items:center;gap:8px;">
             <span style="font-size:12px;color:var(--text-2)">Excluir?</span>
@@ -73,12 +103,24 @@
 
         <div class="tabs">
           <button class="tab ativa" data-tab="transcricao">Transcrição</button>
+          <!-- Feature 4: aba Resumo -->
+          <button class="tab" data-tab="resumo">Resumo</button>
           <button class="tab" data-tab="hotwords">Hotwords</button>
           <button class="tab" data-tab="reprocessar">Reprocessar</button>
         </div>
 
         <div class="tab-content" id="tab-transcricao">
+          <!-- Feature 7: botão copiar transcrição -->
+          <div class="tab-toolbar">
+            <button id="btn-copiar-trans" class="btn-icon-label" title="Copiar transcrição">⎘ Copiar</button>
+          </div>
           <div id="transcricao-render"></div>
+        </div>
+
+        <!-- Feature 4: aba Resumo -->
+        <div class="tab-content" id="tab-resumo" hidden>
+          <div id="resumo-render"></div>
+          <button id="btn-gerar-resumo" class="primary" hidden>✦ Gerar resumo</button>
         </div>
 
         <div class="tab-content" id="tab-hotwords" hidden>
@@ -96,6 +138,13 @@
             <label class="check">
               <input type="checkbox" id="re-diarizar"> Diarizar
             </label>
+            <!-- Feature 11: idioma no reprocessar -->
+            <select id="re-idioma" title="Idioma">
+              <option value="auto" selected>auto</option>
+              <option value="pt">pt</option>
+              <option value="en">en</option>
+              <option value="es">es</option>
+            </select>
           </div>
           <div class="form-row">
             <input type="text" id="re-hotwords" placeholder="hotwords (opcional)">
@@ -105,6 +154,69 @@
       </div>
     </section>
   </main>
+
+  <!-- Feature 9: Modal de Configurações -->
+  <div id="overlay-config" class="modal-overlay" hidden>
+    <div class="modal-config">
+      <div class="modal-header">
+        <h3>⚙️ Configurações</h3>
+        <button id="btn-fechar-config" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-group">
+          <label class="config-label">Idioma padrão</label>
+          <select id="cfg-idioma">
+            <option value="auto">auto</option>
+            <option value="pt">pt</option>
+            <option value="en">en</option>
+            <option value="es">es</option>
+          </select>
+        </div>
+        <div class="config-group">
+          <label class="config-label">Modelo padrão</label>
+          <select id="cfg-modelo">
+            <option value="small">small (rápido)</option>
+            <option value="medium">medium</option>
+            <option value="large-v3">large-v3 (preciso)</option>
+          </select>
+        </div>
+        <div class="config-group config-row">
+          <label class="check">
+            <input type="checkbox" id="cfg-comprimir"> Comprimir áudio (opus)
+          </label>
+        </div>
+        <div class="config-group config-row">
+          <label class="check">
+            <input type="checkbox" id="cfg-resumo-auto"> Resumo automático após transcrição
+          </label>
+        </div>
+        <div class="config-group">
+          <label class="config-label">Diretório de exportação</label>
+          <input type="text" id="cfg-export-dir" placeholder="/caminho/para/vault">
+        </div>
+        <hr class="config-sep">
+        <div class="config-group">
+          <label class="config-label">LLM Provider</label>
+          <div style="display:flex;gap:10px;">
+            <select id="cfg-llm-provider" style="flex:1;">
+              <option value="none">none</option>
+              <option value="claude">claude</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+            </select>
+            <input type="text" id="cfg-llm-modelo" placeholder="modelo (ex: claude-3-haiku)" style="flex:2;">
+          </div>
+        </div>
+        <div class="config-group">
+          <div id="llm-status-display" class="llm-status"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-salvar-config" class="primary">Salvar</button>
+        <button id="btn-fechar-config2">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
