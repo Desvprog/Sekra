@@ -13,7 +13,12 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Utility",
-      "maintainer": "tereza@anne.today"
+      "maintainer": "tereza@anne.today",
+      "icon": "assets/icon.png",
+      "desktop": {
+        "Name": "Reuniões",
+        "StartupWMClass": "reunioes"
+      }
     },
     "extraResources": [
       {
@@ -22,7 +27,7 @@
         "filter": ["**/*"]
       }
     ],
-    "files": ["main.js"]
+    "files": ["main.js", "assets/**"]
   },
   "devDependencies": {
     "electron": "^35.0.0",

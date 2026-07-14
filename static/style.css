@@ -56,6 +56,20 @@ header h1 { font-size: 18px; font-weight: 600; }
 .status-processing { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
 .status-error { background: rgba(229, 72, 72, 0.2); color: var(--danger); }
 
+/* Badge de detecção de reunião — mesmo formato do status-badge, clicável */
+#badge-deteccao {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(63, 185, 80, 0.35);
+  cursor: pointer;
+  animation: pulse 1.5s infinite;
+}
+#badge-deteccao:hover { background: rgba(63, 185, 80, 0.3); }
+
 #banner-erro {
   background: rgba(229, 72, 72, 0.12);
   border-bottom: 1px solid rgba(229, 72, 72, 0.3);
@@ -186,7 +200,7 @@ header h1 { font-size: 18px; font-weight: 600; }
 .form-row:last-child { margin-bottom: 0; }
 .form-row.actions { margin-top: 4px; }
 
-input[type="text"], select {
+input[type="text"], input[type="month"], select, textarea {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -196,7 +210,8 @@ input[type="text"], select {
   font-family: inherit;
 }
 input[type="text"] { flex: 1; }
-input[type="text"]:focus, select:focus {
+textarea { resize: vertical; width: 100%; }
+input[type="text"]:focus, input[type="month"]:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -371,6 +386,7 @@ aside h2, #detalhes h2 {
 .tag.tem-hw     { color: var(--accent); }
 .tag.tem-resumo { color: var(--text-2); border: 1px solid var(--border); }
 .tag.audio-parcial { color: var(--warning); border: 1px solid rgba(210,153,34,0.3); }
+.tag.tem-cliente { color: var(--text-2); border: 1px solid var(--border); }
 
 #ul-reunioes li.incompleta .r-titulo { color: var(--warning); }
 
@@ -430,6 +446,21 @@ aside h2, #detalhes h2 {
   color: var(--text-2);
   padding: 4px 0 0 0;
 }
+
+/* ────────── Feature 12: cliente editável ────────── */
+#det-cliente {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 4px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+#det-cliente:hover { background: var(--bg-3); color: var(--text); }
+#det-cliente-edit { margin-top: 4px; }
+#input-cliente { min-width: 200px; }
 
 button.danger-outline {
   background: transparent;
@@ -626,6 +657,39 @@ h4.md-h { font-size: 13px; color: var(--text-2); }
 .llm-status { font-size: 12px; padding: 6px 0; }
 .llm-ok   { color: var(--success); }
 .llm-warn { color: var(--warning); }
+
+/* ────────── Feature 12: Relatório de horas ────────── */
+#rel-render { overflow-x: auto; margin-top: 4px; }
+.rel-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rel-tabela th {
+  text-align: left;
+  color: var(--text-2);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.rel-tabela td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.rel-tabela tr.rel-grupo td {
+  background: var(--bg-3);
+  font-weight: 600;
+  color: var(--text);
+}
+.rel-tabela tr.rel-total td {
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+}
 
 /* ────────── Scrollbar ────────── */
 ::-webkit-scrollbar { width: 10px; }

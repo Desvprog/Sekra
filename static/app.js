@@ -13,6 +13,10 @@ let transcricaoTextoAtual = "";
 // Guarda se estamos exibindo resultado de busca (não lista normal)
 let emModoBusca = false;
 
+// Feature 12: cliente da reunião selecionada e cache de clientes conhecidos
+let clienteAtualReuniao = "";
+let _clientesCache = [];
+
 // ────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────
@@ -130,6 +134,16 @@ async function atualizarStatus() {
     // Mensagem de status
     $("msg-status").textContent = s.msg || "";
 
+    // Badge de detecção de reunião — só quando detectado e não gravando
+    const det = s.deteccao || {};
+    if (det.detectado && !s.gravando) {
+      $("badge-deteccao").textContent =
+        `Reunião detectada${det.app ? ` (${det.app})` : ""} — Gravar?`;
+      mostrar("badge-deteccao", "inline-block");
+    } else {
+      ocultar("badge-deteccao");
+    }
+
     // Painel de fila/processamento
     const painelProc = $("status-processamento");
     if (s.processando || s.fila_tamanho > 0) {
@@ -198,6 +212,7 @@ function renderizarLista(lista) {
         ${r.tem_transcricao ? '<span class="tag tem-trans">📝 trans</span>' : ''}
         ${r.tem_hotwords ? '<span class="tag tem-hw">🔍 hw</span>' : ''}
         ${r.tem_resumo ? '<span class="tag tem-resumo">📄 resumo</span>' : ''}
+        ${r.cliente ? `<span class="tag tem-cliente">👤 ${escapeHtml(r.cliente)}</span>` : ''}
       </div>
     </li>
   `).join("");
@@ -313,6 +328,11 @@ async function selecionarReuniao(id) {
   $("det-meta").textContent = `${data} às ${hora}`;
   $("player").src = `/api/reunioes/${data}/${slug}/audio`;
 
+  // Feature 12: reset do cliente até o meta carregar
+  clienteAtualReuniao = "";
+  $("det-cliente").textContent = "Cliente: —";
+  cancelarEdicaoCliente();
+
   // Carrega meta (speaker_nomes e demais dados)
   try {
     const meta = await api(`/api/reunioes/${data}/${slug}/meta`);
@@ -327,6 +347,9 @@ async function selecionarReuniao(id) {
     if (meta.idioma) metaExtra += ` · ${meta.idioma}`;
     if (meta.duracao_s) metaExtra += ` · ${fmtDuracao(meta.duracao_s)}`;
     $("det-meta").textContent = metaExtra;
+    // Feature 12: preenche cliente a partir do meta
+    clienteAtualReuniao = meta.cliente || "";
+    $("det-cliente").textContent = clienteAtualReuniao ? `Cliente: ${clienteAtualReuniao}` : "Cliente: —";
   } catch (_) {
     // meta é opcional, ignora 404
   }
@@ -447,6 +470,8 @@ async function iniciarGravacao() {
         idioma: $("idioma").value,
         diarizar: $("diarizar").checked,
         hotwords: $("hotwords").value,
+        // Feature 12: cliente para faturamento
+        cliente: $("cliente").value.trim(),
       }),
     });
     await atualizarStatus();
@@ -637,6 +662,45 @@ async function salvarTitulo() {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// Feature 12: Edição de cliente (faturamento)
+// ────────────────────────────────────────────────────────────────────
+function cancelarEdicaoCliente() {
+  mostrar("det-cliente-view", "block");
+  $("det-cliente-edit").style.display = "none";
+}
+
+function iniciarEdicaoCliente() {
+  $("det-cliente-view").style.display = "none";
+  mostrar("det-cliente-edit", "flex");
+  const inp = $("input-cliente");
+  inp.value = clienteAtualReuniao;
+  inp.focus();
+  inp.select();
+}
+
+async function salvarCliente() {
+  // Já cancelado (ex: via Escape) — ignora o blur que segue
+  if ($("det-cliente-edit").style.display === "none") return;
+  if (!reuniaoSelecionada) return cancelarEdicaoCliente();
+  const novoCliente = $("input-cliente").value.trim();
+  cancelarEdicaoCliente();
+  if (novoCliente === clienteAtualReuniao) return;
+  const [data, slug] = reuniaoSelecionada.split("/");
+  try {
+    await api(`/api/reunioes/${data}/${slug}`, {
+      method: "PATCH",
+      body: JSON.stringify({ cliente: novoCliente }),
+    });
+    clienteAtualReuniao = novoCliente;
+    $("det-cliente").textContent = novoCliente ? `Cliente: ${novoCliente}` : "Cliente: —";
+    mostrarToast("Cliente atualizado", "ok");
+    await carregarLista();
+  } catch (e) {
+    mostrarErro(`Erro ao salvar cliente: ${e.message}`);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Feature 6: Renomear speakers inline
 // ────────────────────────────────────────────────────────────────────
 function inicializarSpeakerEdits(data, slug) {
@@ -753,6 +817,14 @@ async function abrirConfig() {
     $("cfg-comprimir").checked = !!cfg.comprimir_audio;
     $("cfg-resumo-auto").checked = !!cfg.resumo_automatico;
     $("cfg-export-dir").value = cfg.export_dir || "";
+    const det = cfg.deteccao || {};
+    $("cfg-det-ativa").checked = det.ativa !== false;
+    $("cfg-det-auto").checked = !!det.auto_iniciar;
+    $("cfg-det-apps").value = (det.apps || []).join(", ");
+    // Feature 12: clientes e valores/hora
+    $("cfg-clientes").value = (cfg.clientes || []).join(", ");
+    $("cfg-valores-hora").value = Object.entries(cfg.valores_hora || {})
+      .map(([k, v]) => `${k}=${v}`).join("\n");
     if (cfg.llm) {
       $("cfg-llm-provider").value = cfg.llm.provider || "none";
       $("cfg-llm-modelo").value = cfg.llm.modelo || "";
@@ -779,12 +851,38 @@ function fecharConfig() {
 }
 
 async function salvarConfig() {
+  // Feature 12: parseia clientes (separados por vírgula)
+  const clientes = $("cfg-clientes").value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Feature 12: parseia valores/hora ("nome=valor", um por linha)
+  const valoresHora = {};
+  $("cfg-valores-hora").value.split("\n").forEach((linha) => {
+    const l = linha.trim();
+    if (!l) return;
+    const i = l.indexOf("=");
+    if (i === -1) return;
+    const nome = l.slice(0, i).trim();
+    const valor = parseFloat(l.slice(i + 1).trim().replace(",", "."));
+    if (!nome || isNaN(valor)) return;
+    valoresHora[nome] = valor;
+  });
+
   const patch = {
     idioma: $("cfg-idioma").value,
     modelo_padrao: $("cfg-modelo").value,
     comprimir_audio: $("cfg-comprimir").checked,
     resumo_automatico: $("cfg-resumo-auto").checked,
     export_dir: $("cfg-export-dir").value.trim(),
+    deteccao: {
+      ativa: $("cfg-det-ativa").checked,
+      auto_iniciar: $("cfg-det-auto").checked,
+      apps: $("cfg-det-apps").value.split(",").map((s) => s.trim()).filter(Boolean),
+    },
+    clientes,
+    valores_hora: valoresHora,
     llm: {
       provider: $("cfg-llm-provider").value,
       modelo: $("cfg-llm-modelo").value.trim(),
@@ -799,11 +897,118 @@ async function salvarConfig() {
     });
     fecharConfig();
     mostrarToast("Configurações salvas", "ok");
+    // Feature 12: repopula o datalist de clientes com os novos valores
+    await carregarClientesDatalist();
   } catch (e) {
     mostrarErro(`Erro ao salvar configurações: ${e.message}`);
   } finally {
     btn.disabled = false;
   }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Feature 12: Clientes (datalist) e Relatório de horas
+// ────────────────────────────────────────────────────────────────────
+async function carregarClientesDatalist() {
+  try {
+    const cfg = await api("/api/config");
+    _clientesCache = cfg.clientes || [];
+    $("lista-clientes").innerHTML = _clientesCache
+      .map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
+  } catch (_) {
+    // datalist é opcional, ignora falha
+  }
+}
+
+async function abrirRelatorio() {
+  mostrar("overlay-relatorio", "flex");
+  if (!$("rel-mes").value) {
+    const hoje = new Date();
+    $("rel-mes").value = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  }
+  await popularSelectClientesRelatorio();
+  await carregarRelatorio();
+}
+
+function fecharRelatorio() {
+  ocultar("overlay-relatorio");
+}
+
+async function popularSelectClientesRelatorio() {
+  try {
+    const cfg = await api("/api/config");
+    const sel = $("rel-cliente");
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">todos os clientes</option>' +
+      (cfg.clientes || []).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    sel.value = atual || "";
+  } catch (_) {
+    // opcional
+  }
+}
+
+function _relatorioParams() {
+  const params = new URLSearchParams();
+  const mes = $("rel-mes").value;
+  const cliente = $("rel-cliente").value;
+  if (mes) params.set("mes", mes);
+  if (cliente) params.set("cliente", cliente);
+  return params;
+}
+
+async function carregarRelatorio() {
+  const render = $("rel-render");
+  const params = _relatorioParams();
+  $("btn-rel-csv").href = `/api/relatorio/csv?${params.toString()}`;
+  render.innerHTML = '<p class="dica">Carregando…</p>';
+  try {
+    const r = await api(`/api/relatorio?${params.toString()}`);
+    render.innerHTML = renderizarRelatorio(r);
+  } catch (e) {
+    render.innerHTML = `<p class="dica">Erro ao carregar relatório: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function renderizarRelatorio(r) {
+  if (!r.grupos || !r.grupos.length) {
+    return '<p class="dica">Nenhuma reunião encontrada no período.</p>';
+  }
+  const linhas = [];
+  for (const g of r.grupos) {
+    const valorTxt = g.valor != null ? `R$ ${g.valor.toFixed(2).replace(".", ",")}` : "—";
+    linhas.push(`
+      <tr class="rel-grupo">
+        <td colspan="3">${escapeHtml(g.cliente || "(sem cliente)")} — ${g.reunioes.length} reunião(ões)</td>
+        <td>${fmtDuracao(g.total_s)}</td>
+        <td>${valorTxt}</td>
+      </tr>
+    `);
+    for (const reu of g.reunioes) {
+      linhas.push(`
+        <tr>
+          <td>${escapeHtml(reu.data)}</td>
+          <td colspan="2">${escapeHtml(reu.titulo)}</td>
+          <td>${fmtDuracao(reu.duracao_s)}</td>
+          <td></td>
+        </tr>
+      `);
+    }
+  }
+  return `
+    <table class="rel-tabela">
+      <thead>
+        <tr><th colspan="3">Cliente / Título</th><th>Duração</th><th>Valor</th></tr>
+      </thead>
+      <tbody>${linhas.join("")}</tbody>
+      <tfoot>
+        <tr class="rel-total">
+          <td colspan="3">Total geral</td>
+          <td>${fmtDuracao(r.total_geral_s)}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -827,6 +1032,9 @@ $("btn-excluir").addEventListener("click", pedirConfirmacaoExcluir);
 $("btn-copiar-trans").addEventListener("click", copiarTranscricao);
 $("btn-exportar").addEventListener("click", exportarReuniao);
 
+// Detecção de reunião: badge no header aciona o botão de gravar existente
+$("badge-deteccao").addEventListener("click", () => $("btn-iniciar").click());
+
 // Feature 5: editar título
 $("btn-editar-titulo").addEventListener("click", iniciarEdicaoTitulo);
 $("btn-salvar-titulo").addEventListener("click", salvarTitulo);
@@ -844,6 +1052,24 @@ $("btn-salvar-config").addEventListener("click", salvarConfig);
 // Fechar ao clicar no overlay
 $("overlay-config").addEventListener("click", (e) => {
   if (e.target === $("overlay-config")) fecharConfig();
+});
+
+// Feature 12: editar cliente
+$("det-cliente").addEventListener("click", iniciarEdicaoCliente);
+$("input-cliente").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); salvarCliente(); }
+  if (e.key === "Escape") cancelarEdicaoCliente();
+});
+$("input-cliente").addEventListener("blur", salvarCliente);
+
+// Feature 12: relatório de horas
+$("btn-relatorio").addEventListener("click", abrirRelatorio);
+$("btn-fechar-relatorio").addEventListener("click", fecharRelatorio);
+$("btn-fechar-relatorio2").addEventListener("click", fecharRelatorio);
+$("rel-mes").addEventListener("change", carregarRelatorio);
+$("rel-cliente").addEventListener("change", carregarRelatorio);
+$("overlay-relatorio").addEventListener("click", (e) => {
+  if (e.target === $("overlay-relatorio")) fecharRelatorio();
 });
 
 document.querySelectorAll(".tab").forEach((b) => {
@@ -874,6 +1100,9 @@ document.addEventListener("keydown", (e) => {
 
 // Feature 2: inicializa filtro
 inicializarFiltro();
+
+// Feature 12: popula o datalist de clientes
+carregarClientesDatalist();
 
 carregarLista();
 atualizarStatus();

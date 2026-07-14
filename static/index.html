@@ -11,7 +11,11 @@
   <header>
     <h1>🎙️ Reuniões</h1>
     <div style="display:flex;align-items:center;gap:12px;">
+      <!-- Detecção de reunião: badge discreto, some ao gravar -->
+      <button id="badge-deteccao" title="Iniciar gravação" hidden>Reunião detectada — Gravar?</button>
       <div id="status-badge" class="status-idle">ocioso</div>
+      <!-- Feature 12: botão de Relatório de horas -->
+      <button id="btn-relatorio" class="btn-toggle" title="Relatório de horas">📊</button>
       <button id="btn-config" class="btn-toggle" title="Configurações">⚙️</button>
       <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
     </div>
@@ -40,6 +44,9 @@
         <option value="en">en</option>
         <option value="es">es</option>
       </select>
+      <!-- Feature 12: cliente para faturamento -->
+      <input type="text" id="cliente" list="lista-clientes" placeholder="Cliente (faturamento)">
+      <datalist id="lista-clientes"></datalist>
     </div>
     <div class="form-row">
       <label class="check">
@@ -88,6 +95,13 @@
               <button id="btn-cancelar-titulo" style="padding:6px 12px;">✕</button>
             </div>
             <p id="det-meta" class="meta"></p>
+            <!-- Feature 12: cliente editável -->
+            <div id="det-cliente-view">
+              <span id="det-cliente" title="Clique para editar"></span>
+            </div>
+            <div id="det-cliente-edit" style="display:none;align-items:center;gap:8px;">
+              <input id="input-cliente" type="text" list="lista-clientes" style="font-size:12px;padding:4px 8px;">
+            </div>
           </div>
           <!-- Feature 8: botão Exportar -->
           <button id="btn-exportar" class="btn-icon-label" title="Exportar reunião">↗ Exportar</button>
@@ -194,6 +208,29 @@
           <label class="config-label">Diretório de exportação</label>
           <input type="text" id="cfg-export-dir" placeholder="/caminho/para/vault">
         </div>
+        <!-- Feature 12: clientes e valores/hora para relatório -->
+        <div class="config-group">
+          <label class="config-label">Clientes (separados por vírgula)</label>
+          <input type="text" id="cfg-clientes" placeholder="Acme, Beta Corp">
+        </div>
+        <div class="config-group">
+          <label class="config-label">Valores/hora (cliente=valor, um por linha)</label>
+          <textarea id="cfg-valores-hora" rows="3" placeholder="Acme=150&#10;Beta Corp=200"></textarea>
+        </div>
+        <hr class="config-sep">
+        <div class="config-group">
+          <label class="config-label">Detecção de reunião</label>
+          <label class="check">
+            <input type="checkbox" id="cfg-det-ativa"> Detectar reuniões automaticamente
+          </label>
+          <label class="check">
+            <input type="checkbox" id="cfg-det-auto"> Iniciar gravação sozinho
+          </label>
+        </div>
+        <div class="config-group">
+          <label class="config-label">Apps monitorados (separados por vírgula)</label>
+          <input type="text" id="cfg-det-apps" placeholder="chrome, teams, zoom, discord">
+        </div>
         <hr class="config-sep">
         <div class="config-group">
           <label class="config-label">LLM Provider</label>
@@ -214,6 +251,29 @@
       <div class="modal-footer">
         <button id="btn-salvar-config" class="primary">Salvar</button>
         <button id="btn-fechar-config2">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feature 12: Modal de Relatório de horas -->
+  <div id="overlay-relatorio" class="modal-overlay" hidden>
+    <div class="modal-config">
+      <div class="modal-header">
+        <h3>📊 Relatório de horas</h3>
+        <button id="btn-fechar-relatorio" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-group config-row" style="gap:10px;">
+          <input type="month" id="rel-mes">
+          <select id="rel-cliente" style="flex:1;">
+            <option value="">todos os clientes</option>
+          </select>
+        </div>
+        <div id="rel-render"></div>
+      </div>
+      <div class="modal-footer">
+        <a id="btn-rel-csv" class="btn-icon-label" href="#" target="_blank">⬇ Exportar CSV</a>
+        <button id="btn-fechar-relatorio2">Fechar</button>
       </div>
     </div>
   </div>

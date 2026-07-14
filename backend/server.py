@@ -14,7 +14,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -24,6 +24,8 @@ import meta
 import busca
 import exportar
 import resumo
+import monitor
+import relatorio
 
 PORT = 8654
 # Quando empacotado pelo PyInstaller, arquivos de dados ficam em sys._MEIPASS
@@ -58,6 +60,8 @@ class Estado:
         self.erro: Optional[str] = None
 
     def snapshot(self) -> dict:
+        det = monitor.snapshot()
+        cfg_det = config.carregar().get("deteccao", {})
         with self.lock:
             duracao = int(time.time() - self.inicio) if self.gravando and self.inicio else 0
             return {
@@ -70,6 +74,12 @@ class Estado:
                 "fila_tamanho": len(self.pendentes),
                 "msg": self.msg,
                 "erro": self.erro,
+                "deteccao": {
+                    "detectado": det["detectado"],
+                    "app": det["app"],
+                    "ativa": bool(cfg_det.get("ativa", True)),
+                    "auto_iniciar": bool(cfg_det.get("auto_iniciar", False)),
+                },
             }
 
     def set_msg(self, msg: str) -> None:
@@ -93,7 +103,8 @@ estado = Estado()
 # ────────────────────────────────────────────────────────────────────────────
 
 def enfileirar(pasta: Path, titulo: str, modelo: str,
-               diarizar: bool, hotwords: list, idioma: Optional[str] = None) -> int:
+               diarizar: bool, hotwords: list, idioma: Optional[str] = None,
+               cliente: Optional[str] = None) -> int:
     """Adiciona um item à fila de processamento. Retorna a posição (nº de pendentes)."""
     item = {
         "pasta": pasta,
@@ -102,6 +113,7 @@ def enfileirar(pasta: Path, titulo: str, modelo: str,
         "diarizar": diarizar,
         "hotwords": hotwords,
         "idioma": idioma,
+        "cliente": cliente,
         "id": str(pasta),
     }
     with estado.lock:
@@ -138,7 +150,8 @@ def _worker_loop():
             reuniao.processar(
                 item["pasta"], item["titulo"], item["modelo"],
                 item["diarizar"], item["hotwords"],
-                progress_cb=estado.set_msg, idioma=item["idioma"]
+                progress_cb=estado.set_msg, idioma=item["idioma"],
+                cliente=item.get("cliente"),
             )
         except BaseException as e:
             estado.set_erro(str(e) or type(e).__name__)
@@ -165,6 +178,7 @@ class IniciarBody(BaseModel):
     diarizar: bool = False
     hotwords: str = ""
     idioma: Optional[str] = None
+    cliente: Optional[str] = None
 
 
 class ReprocessarBody(BaseModel):
@@ -181,6 +195,8 @@ class ConfigBody(BaseModel):
 class PatchReuniaoBody(BaseModel):
     titulo: Optional[str] = None
     speaker_nomes: Optional[dict] = None
+    cliente: Optional[str] = None
+    arquivada: Optional[bool] = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -261,6 +277,8 @@ def listar_reunioes_fs() -> list[dict]:
                 "duracao_fmt": duracao_fmt,
                 "idioma": m.get("idioma"),
                 "num_speakers": m.get("num_speakers"),
+                "cliente": m.get("cliente") or "",
+                "arquivada": bool(m.get("arquivada")),
             })
     return out
 
@@ -334,6 +352,10 @@ def patch_reuniao(data: str, slug: str, body: PatchReuniaoBody):
         campos["titulo"] = body.titulo
     if body.speaker_nomes is not None:
         campos["speaker_nomes"] = body.speaker_nomes
+    if body.cliente is not None:
+        campos["cliente"] = body.cliente.strip()
+    if body.arquivada is not None:
+        campos["arquivada"] = bool(body.arquivada)
     if campos:
         return meta.escrever(pasta, **campos)
     return meta.ler(pasta)
@@ -374,43 +396,74 @@ def exportar_endpoint(data: str, slug: str):
     return {"destino": str(arq)}
 
 
-@app.post("/api/gravar/iniciar")
-def iniciar(body: IniciarBody):
+class GravacaoAtivaError(RuntimeError):
+    """Já existe uma gravação ativa (mapeada para HTTP 409 no endpoint)."""
+
+
+def iniciar_gravacao_servidor(titulo: str = "reuniao", modelo: str = "medium",
+                              diarizar: bool = False, hotwords: str = "",
+                              idioma: Optional[str] = None,
+                              cliente: Optional[str] = None) -> Path:
+    """
+    Inicia uma gravação (usada pelo endpoint e pelo monitor de detecção).
+    Levanta GravacaoAtivaError se já houver gravação; RuntimeError/SystemExit
+    se os dispositivos de áudio falharem. Retorna a pasta criada.
+    """
     with estado.lock:
         # Bloqueia APENAS se já houver gravação ativa — nunca por processamento
         if estado.gravando:
-            raise HTTPException(409, "Já existe uma gravação ativa")
+            raise GravacaoAtivaError("Já existe uma gravação ativa")
 
         agora = datetime.now()
-        titulo_limpo = body.titulo.replace(" ", "-").lower() or "reuniao"
+        titulo_limpo = titulo.replace(" ", "-").lower() or "reuniao"
         pasta = (reuniao.BASE_DIR / agora.strftime("%Y-%m-%d")
                  / f"{agora.strftime('%H-%M')}-{titulo_limpo}")
         pasta.mkdir(parents=True, exist_ok=True)
 
-        try:
-            monitor, mic = reuniao.detectar_dispositivos()
-            proc = reuniao.iniciar_gravacao(pasta, monitor, mic)
-        except SystemExit as e:
-            raise HTTPException(500, str(e))
+        monitor_disp, mic = reuniao.detectar_dispositivos()
+        proc = reuniao.iniciar_gravacao(pasta, monitor_disp, mic)
 
         # Fallback de hotwords para hotwords_padrao da config
-        hotwords_lista = parsear_hotwords(body.hotwords)
+        hotwords_lista = parsear_hotwords(hotwords)
         if not hotwords_lista:
             hotwords_lista = config.carregar().get("hotwords_padrao", [])
 
         estado.gravando = True
-        estado.titulo = body.titulo
+        estado.titulo = titulo
         estado.inicio = time.time()
         estado.pasta = pasta
         estado.proc = proc
         estado.opcoes = {
-            "diarizar": body.diarizar,
+            "diarizar": diarizar,
             "hotwords": hotwords_lista,
-            "modelo": body.modelo,
-            "idioma": body.idioma,
+            "modelo": modelo,
+            "idioma": idioma,
+            "cliente": (cliente or "").strip() or None,
         }
         estado.msg = "Gravando..."
 
+    return pasta
+
+
+def _esta_gravando() -> bool:
+    with estado.lock:
+        return estado.gravando
+
+
+# Inicia o monitor de detecção de reunião (thread daemon, uma única vez)
+monitor.iniciar(iniciar_gravacao_servidor, _esta_gravando)
+
+
+@app.post("/api/gravar/iniciar")
+def iniciar(body: IniciarBody):
+    try:
+        pasta = iniciar_gravacao_servidor(body.titulo, body.modelo,
+                                          body.diarizar, body.hotwords,
+                                          body.idioma, body.cliente)
+    except GravacaoAtivaError as e:
+        raise HTTPException(409, str(e))
+    except (RuntimeError, SystemExit) as e:
+        raise HTTPException(500, str(e))
     return {"ok": True, "pasta": str(pasta)}
 
 
@@ -436,7 +489,7 @@ def parar():
     pos = enfileirar(
         pasta, titulo, opcoes["modelo"],
         opcoes["diarizar"], opcoes["hotwords"],
-        opcoes.get("idioma")
+        opcoes.get("idioma"), opcoes.get("cliente")
     )
     return {"ok": True, "fila_tamanho": pos}
 
@@ -489,6 +542,25 @@ def buscar_endpoint(q: str = ""):
     if not q:
         return []
     return busca.buscar(q, reuniao.BASE_DIR)
+
+
+@app.get("/api/relatorio")
+def relatorio_endpoint(mes: str = "", cliente: str = ""):
+    valores_hora = config.carregar().get("valores_hora", {})
+    return relatorio.gerar(listar_reunioes_fs(), mes, cliente, valores_hora)
+
+
+@app.get("/api/relatorio/csv")
+def relatorio_csv_endpoint(mes: str = "", cliente: str = ""):
+    valores_hora = config.carregar().get("valores_hora", {})
+    dados = relatorio.gerar(listar_reunioes_fs(), mes, cliente, valores_hora)
+    csv_texto = relatorio.para_csv(dados, valores_hora)
+    nome = f"relatorio-{dados['mes']}.csv"
+    return Response(
+        content=csv_texto,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────

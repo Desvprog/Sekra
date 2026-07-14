@@ -54,9 +54,9 @@ def pactl(*args: str) -> str:
                            text=True, check=True)
         return r.stdout.strip()
     except FileNotFoundError:
-        sys.exit("❌ pactl não encontrado. Instale: sudo apt install pulseaudio-utils")
+        raise RuntimeError("pactl não encontrado. Instale: sudo apt install pulseaudio-utils")
     except subprocess.CalledProcessError as e:
-        sys.exit(f"❌ Erro pactl: {e.stderr}")
+        raise RuntimeError(f"Erro pactl: {e.stderr}")
 
 
 def detectar_dispositivos() -> tuple[str, str]:
@@ -475,10 +475,13 @@ def renomear_speakers(segs: list[Segmento], mapa: dict[str, str]) -> None:
 def processar(pasta: Path, titulo: str, modelo: str,
               diarizar_flag: bool, hotwords: list[str],
               progress_cb: Optional[Callable[[str], None]] = None,
-              idioma: Optional[str] = None) -> dict:
+              idioma: Optional[str] = None,
+              cliente: Optional[str] = None) -> dict:
     """
     Orquestra transcrição + diarização + hotwords.
     progress_cb recebe mensagens curtas de status (pra UI).
+    cliente é gravado no meta.json para fins de timetracking/faturamento;
+    None não sobrescreve um cliente já existente (ex.: reprocessamento).
     Retorna dict com paths gerados.
     """
     p_mic, p_loop, p_mix = caminhos_audio(pasta)
@@ -555,6 +558,7 @@ def processar(pasta: Path, titulo: str, modelo: str,
             tem_resumo=False,
             audio_comprimido=bool(cfg.get("comprimir_audio")),
             criado_em=datetime.now().isoformat(timespec="seconds"),
+            cliente=cliente,
         )
 
         # Resumo automático
@@ -605,8 +609,9 @@ def main() -> None:
     hotwords = [h.strip() for h in args.hotwords.split(",") if h.strip()]
 
     if args.so_processar:
-        if not (args.so_processar / "audio.wav").exists():
-            sys.exit(f"❌ {args.so_processar}/audio.wav não encontrado.")
+        if not ((args.so_processar / "audio.wav").exists()
+                or (args.so_processar / "audio.opus").exists()):
+            sys.exit(f"❌ {args.so_processar}: nenhum audio.wav ou audio.opus encontrado.")
         processar(args.so_processar, args.so_processar.name,
                   args.modelo, args.diarizar, hotwords)
         return
@@ -616,7 +621,10 @@ def main() -> None:
     pasta = BASE_DIR / agora.strftime("%Y-%m-%d") / f"{agora.strftime('%H-%M')}-{titulo_limpo}"
     pasta.mkdir(parents=True, exist_ok=True)
 
-    monitor, mic = detectar_dispositivos()
+    try:
+        monitor, mic = detectar_dispositivos()
+    except RuntimeError as e:
+        sys.exit(f"❌ {e}")
     print(f"📡 Sistema: {monitor}")
     print(f"🎤 Microfone: {mic}")
 
