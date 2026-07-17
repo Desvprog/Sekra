@@ -16,7 +16,11 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 hidden_extra = []
 datas_extra = []
 binaries_extra = []
-for _pkg in ("pyannote", "pyannote.audio", "lightning_fabric", "speechbrain", "asteroid_filterbanks"):
+# faster_whisper carrega assets por caminho relativo (ex.: silero_vad_v6.onnx do
+# filtro VAD). collect_all traz esses dados; sem isso o import funciona mas o
+# arquivo some do bundle e só quebra em runtime ao chamar transcribe(vad_filter=True).
+for _pkg in ("faster_whisper", "ctranslate2",
+             "pyannote", "pyannote.audio", "lightning_fabric", "speechbrain", "asteroid_filterbanks"):
     try:
         d, b, h = collect_all(_pkg)
         datas_extra += d; binaries_extra += b; hidden_extra += h
@@ -36,6 +40,7 @@ a = Analysis(
         (str(ROOT / "backend" / "resumo.py"), "."),
         (str(ROOT / "backend" / "busca.py"), "."),
         (str(ROOT / "backend" / "exportar.py"), "."),
+        (str(ROOT / "backend" / "transcricao.py"), "."),
     ] + datas_extra,
     hiddenimports=[
         "uvicorn.logging",
@@ -62,6 +67,7 @@ a = Analysis(
         "resumo",
         "busca",
         "exportar",
+        "transcricao",
         # Dependências LLM
         "anthropic",
         "httpx",

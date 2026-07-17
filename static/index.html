@@ -241,11 +241,32 @@
               <option value="openai">openai</option>
               <option value="gemini">gemini</option>
             </select>
-            <input type="text" id="cfg-llm-modelo" placeholder="modelo (ex: claude-3-haiku)" style="flex:2;">
+            <input type="text" id="cfg-llm-modelo" placeholder="modelo (ex: claude-opus-4-8)" style="flex:2;">
           </div>
         </div>
         <div class="config-group">
+          <label class="config-label">Chave de API do provedor</label>
+          <div style="display:flex;gap:10px;">
+            <input type="password" id="cfg-llm-chave" placeholder="cole a chave aqui" style="flex:2;" autocomplete="off">
+            <button id="btn-salvar-chave" type="button" style="flex:1;">Salvar chave</button>
+            <button id="btn-testar-chave" type="button" style="flex:1;">Testar</button>
+          </div>
+          <div id="chave-status-display" class="llm-status"></div>
+        </div>
+        <div class="config-group">
           <div id="llm-status-display" class="llm-status"></div>
+        </div>
+        <hr class="config-sep">
+        <div class="config-group">
+          <label class="config-label">Transcrição</label>
+          <div style="display:flex;gap:10px;">
+            <select id="cfg-transc-provider" style="flex:1;">
+              <option value="local">local (offline, Whisper)</option>
+              <option value="openai">openai (API)</option>
+            </select>
+            <input type="text" id="cfg-transc-modelo" placeholder="modelo API (ex: whisper-1)" style="flex:2;">
+          </div>
+          <div class="config-hint">Local roda offline no seu computador. API envia o áudio ao provedor (mais rápido, requer chave e conexão).</div>
         </div>
       </div>
       <div class="modal-footer">

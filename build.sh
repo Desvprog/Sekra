@@ -19,8 +19,8 @@ echo "==> [2/3] Empacotando servidor Python com PyInstaller..."
 
 echo "==> [3/3] Instalando dependências Electron e gerando AppImage..."
 cd "$ROOT/electron"
-npm install --silent
-npm run build
+pnpm install --silent
+pnpm run build
 
 echo ""
 echo "✅ Pronto! Pacotes gerados em: electron/dist/"

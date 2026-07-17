@@ -829,10 +829,15 @@ async function abrirConfig() {
       $("cfg-llm-provider").value = cfg.llm.provider || "none";
       $("cfg-llm-modelo").value = cfg.llm.modelo || "";
     }
+    const tr = cfg.transcricao || {};
+    $("cfg-transc-provider").value = tr.provider || "local";
+    $("cfg-transc-modelo").value = tr.modelo || "";
+    // Campo de chave nunca é pré-preenchido; só limpamos o input
+    $("cfg-llm-chave").value = "";
   } catch (e) {
     mostrarErro(`Erro ao carregar configurações: ${e.message}`);
   }
-  // Carrega status LLM
+  // Carrega status LLM (inclui se a chave já está configurada, sem expô-la)
   try {
     const st = await api("/api/llm/status");
     const display = $("llm-status-display");
@@ -841,8 +846,66 @@ async function abrirConfig() {
     } else {
       display.innerHTML = `<span class="llm-warn">⚠ ${escapeHtml(st.motivo || "LLM não disponível")}</span>`;
     }
+    const cs = $("chave-status-display");
+    cs.innerHTML = st.chave_configurada
+      ? '<span class="llm-ok">✓ Chave configurada</span>'
+      : '<span class="llm-warn">⚠ Nenhuma chave salva</span>';
   } catch (_) {
     $("llm-status-display").innerHTML = '<span class="llm-warn">⚠ Não foi possível verificar o status do LLM</span>';
+  }
+}
+
+// Salva a chave de API do provedor selecionado (nunca é lida de volta ao input)
+async function salvarChaveLLM() {
+  const provider = $("cfg-llm-provider").value;
+  const chave = $("cfg-llm-chave").value;
+  if (provider === "none") {
+    mostrarToast("Selecione um provedor antes de salvar a chave", "erro");
+    return;
+  }
+  const btn = $("btn-salvar-chave");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/llm/chave", {
+      method: "POST",
+      body: JSON.stringify({ provider, chave }),
+    });
+    $("cfg-llm-chave").value = "";
+    $("chave-status-display").innerHTML = r.chave_configurada
+      ? '<span class="llm-ok">✓ Chave configurada</span>'
+      : '<span class="llm-warn">⚠ Nenhuma chave salva</span>';
+    mostrarToast(chave.trim() ? "Chave salva" : "Chave removida", "ok");
+  } catch (e) {
+    mostrarToast(`Erro ao salvar chave: ${e.message}`, "erro");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Testa a chave do provedor com uma chamada mínima
+async function testarChaveLLM() {
+  const provider = $("cfg-llm-provider").value;
+  const modelo = $("cfg-llm-modelo").value.trim();
+  if (provider === "none") {
+    mostrarToast("Selecione um provedor antes de testar", "erro");
+    return;
+  }
+  const btn = $("btn-testar-chave");
+  btn.disabled = true;
+  const cs = $("chave-status-display");
+  cs.innerHTML = '<span class="llm-warn">Testando…</span>';
+  try {
+    const r = await api("/api/llm/testar", {
+      method: "POST",
+      body: JSON.stringify({ provider, modelo }),
+    });
+    cs.innerHTML = r.ok
+      ? '<span class="llm-ok">✓ Conexão OK</span>'
+      : `<span class="llm-warn">⚠ ${escapeHtml(r.erro || "Falha no teste")}</span>`;
+  } catch (e) {
+    cs.innerHTML = `<span class="llm-warn">⚠ ${escapeHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -886,6 +949,10 @@ async function salvarConfig() {
     llm: {
       provider: $("cfg-llm-provider").value,
       modelo: $("cfg-llm-modelo").value.trim(),
+    },
+    transcricao: {
+      provider: $("cfg-transc-provider").value,
+      modelo: $("cfg-transc-modelo").value.trim(),
     },
   };
   const btn = $("btn-salvar-config");
@@ -1049,6 +1116,8 @@ $("btn-config").addEventListener("click", abrirConfig);
 $("btn-fechar-config").addEventListener("click", fecharConfig);
 $("btn-fechar-config2").addEventListener("click", fecharConfig);
 $("btn-salvar-config").addEventListener("click", salvarConfig);
+$("btn-salvar-chave").addEventListener("click", salvarChaveLLM);
+$("btn-testar-chave").addEventListener("click", testarChaveLLM);
 // Fechar ao clicar no overlay
 $("overlay-config").addEventListener("click", (e) => {
   if (e.target === $("overlay-config")) fecharConfig();

@@ -207,44 +207,31 @@ def recuperar_audio(pasta: Path,
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Transcrição (faster-whisper)
+# Transcrição (provedor plugável — ver transcricao.py)
 # ────────────────────────────────────────────────────────────────────────────
-
-_modelo_cache: dict = {"nome": None, "obj": None}
-
-
-def _get_whisper(modelo: str):
-    """Retorna WhisperModel do cache; recria apenas se o modelo mudou."""
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        sys.exit("❌ Instale: pip install faster-whisper")
-
-    if _modelo_cache["nome"] != modelo or _modelo_cache["obj"] is None:
-        _modelo_cache["obj"] = WhisperModel(modelo, device="cpu", compute_type="int8")
-        _modelo_cache["nome"] = modelo
-    return _modelo_cache["obj"]
-
 
 def transcrever(audio: Path, modelo: str, label_speaker: str = "?",
                 idioma: Optional[str] = None) -> tuple[list[Segmento], Optional[str]]:
     """
-    Transcreve audio com faster-whisper.
-    idioma=None → detecção automática pelo Whisper.
-    Retorna (lista_segmentos, idioma_detectado).
+    Transcreve audio com o provedor configurado (local/faster-whisper ou API).
+    idioma=None → detecção automática. Retorna (lista_segmentos, idioma_detectado).
+
+    O rótulo de falante vem do canal (mic vs loopback), não do provedor —
+    por isso label_speaker é aplicado aqui, após a transcrição.
     """
-    model = _get_whisper(modelo)
-    segments_iter, info = model.transcribe(
-        str(audio),
-        language=idioma,
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-        beam_size=5,
+    import transcricao
+    cfg_tr = config.carregar().get("transcricao", {})
+    provider = cfg_tr.get("provider", "local")
+    # Provedores de API usam seu próprio nome de modelo (config.transcricao.modelo);
+    # o provedor local usa o modelo Whisper passado pelo chamador.
+    modelo_efetivo = cfg_tr.get("modelo", "") if provider == "openai" else modelo
+
+    trechos, idioma_detectado = transcricao.transcrever(
+        audio, idioma, modelo_efetivo, provider
     )
-    idioma_detectado = getattr(info, "language", None)
     segs = [
-        Segmento(start=s.start, end=s.end, text=s.text.strip(), speaker=label_speaker)
-        for s in segments_iter
+        Segmento(start=start, end=end, text=text, speaker=label_speaker)
+        for (start, end, text) in trechos
     ]
     return segs, idioma_detectado
 

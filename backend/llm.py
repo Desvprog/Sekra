@@ -64,6 +64,63 @@ def _ler_chave(provider: str) -> Optional[str]:
     return None
 
 
+def salvar_chave(provider: str, chave: str) -> None:
+    """Grava a chave de API do provedor em ~/.config/reunioes/<provider>_key.
+
+    Permissão 0600 (só o dono lê/escreve). Chave vazia remove o arquivo.
+    A chave nunca é logada. Levanta LLMError para provedor desconhecido.
+    """
+    nome_arquivo = _CHAVE_ARQUIVO.get(provider)
+    if not nome_arquivo:
+        raise LLMError(f"Provedor desconhecido: '{provider}'.")
+
+    caminho = _CONFIG_DIR / nome_arquivo
+    chave = (chave or "").strip()
+
+    if not chave:
+        caminho.unlink(missing_ok=True)
+        return
+
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # Cria o arquivo já com 0600 antes de escrever, para a chave nunca existir
+    # em disco com permissão frouxa nem por um instante.
+    fd = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, chave.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
+def chave_configurada(provider: str) -> bool:
+    """True se há chave disponível para o provedor (env var ou arquivo). Não expõe a chave."""
+    return bool(_ler_chave(provider))
+
+
+def testar(provider: str, modelo: str = "") -> dict:
+    """Faz uma chamada mínima ao provedor para validar a chave.
+
+    Retorna {"ok": bool, "erro": str}. A chave nunca aparece no erro.
+    Não altera o config — usa o provider/modelo passados, ou os do config.
+    """
+    if provider not in _CHAVE_ENV:
+        return {"ok": False, "erro": f"Provedor desconhecido: '{provider}'."}
+    if not chave_configurada(provider):
+        return {"ok": False, "erro": "Nenhuma chave configurada para este provedor."}
+
+    chave = _ler_chave(provider)
+    modelo = modelo or _cfg_llm().get("modelo", "")
+    try:
+        if provider == "claude":
+            _chamar_claude("ping", "", 16, modelo, chave)
+        elif provider == "openai":
+            _chamar_openai("ping", "", 16, modelo, chave)
+        elif provider == "gemini":
+            _chamar_gemini("ping", "", 16, modelo, chave)
+        return {"ok": True, "erro": ""}
+    except LLMError as e:
+        return {"ok": False, "erro": str(e)}
+
+
 def _cfg_llm() -> dict:
     """Retorna o sub-dict llm do config."""
     return config.carregar().get("llm", {})
@@ -89,6 +146,7 @@ def info() -> dict:
             "provider": "none",
             "modelo": modelo,
             "disponivel": False,
+            "chave_configurada": False,
             "motivo": "Provedor configurado como 'none'.",
         }
 
@@ -97,6 +155,7 @@ def info() -> dict:
             "provider": provider,
             "modelo": modelo,
             "disponivel": False,
+            "chave_configurada": False,
             "motivo": f"Provedor desconhecido: '{provider}'.",
         }
 
@@ -108,9 +167,10 @@ def info() -> dict:
             "provider": provider,
             "modelo": modelo,
             "disponivel": False,
+            "chave_configurada": False,
             "motivo": (
                 f"Chave de API ausente para '{provider}'. "
-                f"Defina {env_var} ou crie ~/.config/reunioes/{arquivo}."
+                f"Defina {env_var} ou salve a chave nas configurações."
             ),
         }
 
@@ -118,6 +178,7 @@ def info() -> dict:
         "provider": provider,
         "modelo": modelo,
         "disponivel": True,
+        "chave_configurada": True,
         "motivo": "",
     }
 

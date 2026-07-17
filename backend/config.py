@@ -33,6 +33,12 @@ PADROES: dict[str, Any] = {
         # claude-haiku-4-5 nas configurações se quiser reduzir custo.
         "modelo": "claude-opus-4-8",
     },
+    "transcricao": {
+        "provider": "local",     # local (faster-whisper, offline) | openai (API)
+        # Modelo usado apenas por provedores de API (ex.: "whisper-1" na OpenAI).
+        # Provedor local usa "modelo_padrao" acima. Vazio = padrão do provedor.
+        "modelo": "",
+    },
     "deteccao": {
         "ativa": True,           # monitora o PulseAudio em busca de reuniões
         "auto_iniciar": False,   # inicia gravação sozinho ao detectar

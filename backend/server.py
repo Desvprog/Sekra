@@ -192,6 +192,16 @@ class ConfigBody(BaseModel):
     model_config = {"extra": "allow"}
 
 
+class ChaveBody(BaseModel):
+    provider: str
+    chave: str = ""
+
+
+class TestarChaveBody(BaseModel):
+    provider: str
+    modelo: str = ""
+
+
 class PatchReuniaoBody(BaseModel):
     titulo: Optional[str] = None
     speaker_nomes: Optional[dict] = None
@@ -535,6 +545,24 @@ def post_config(body: ConfigBody):
 def llm_status():
     import llm
     return llm.info()
+
+
+@app.post("/api/llm/chave")
+def llm_salvar_chave(body: ChaveBody):
+    """Grava a chave de API do provedor (arquivo 0600). Nunca devolve a chave."""
+    import llm
+    try:
+        llm.salvar_chave(body.provider, body.chave)
+    except llm.LLMError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "chave_configurada": llm.chave_configurada(body.provider)}
+
+
+@app.post("/api/llm/testar")
+def llm_testar(body: TestarChaveBody):
+    """Testa a chave do provedor com uma chamada mínima. Não altera o config."""
+    import llm
+    return llm.testar(body.provider, body.modelo)
 
 
 @app.get("/api/buscar")
