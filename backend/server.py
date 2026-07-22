@@ -5,10 +5,11 @@ Acesse em http://localhost:8765 após iniciar.
 """
 
 import queue
+import re
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,10 @@ import exportar
 import resumo
 import monitor
 import relatorio
+import lembretes
+import sync
+import horas
+import dashboard
 
 PORT = 8654
 # Quando empacotado pelo PyInstaller, arquivos de dados ficam em sys._MEIPASS
@@ -64,10 +69,23 @@ class Estado:
         cfg_det = config.carregar().get("deteccao", {})
         with self.lock:
             duracao = int(time.time() - self.inicio) if self.gravando and self.inicio else 0
-            return {
+            # Cliente/projeto da gravação em andamento, para hidratar a UI em
+            # caso de reload durante a gravação (ver static/app.js,
+            # atualizarStatus): cliente vem de estado.opcoes (definido em
+            # iniciar_gravacao_servidor); projeto é gravado direto no
+            # meta.json da pasta (não fica em opcoes) — ver docstring de
+            # iniciar_gravacao_servidor.
+            gravacao_cliente = None
+            pasta_gravacao = None
+            if self.gravando:
+                gravacao_cliente = self.opcoes.get("cliente")
+                pasta_gravacao = self.pasta
+            snap = {
                 "gravando": self.gravando,
                 "duracao_s": duracao,
                 "titulo": self.titulo,
+                "gravacao_cliente": gravacao_cliente,
+                "gravacao_projeto": None,
                 "processando": self.processando,
                 "titulo_processando": self.titulo_processando,
                 "fila": [p["titulo"] for p in self.pendentes],
@@ -81,6 +99,14 @@ class Estado:
                     "auto_iniciar": bool(cfg_det.get("auto_iniciar", False)),
                 },
             }
+        # Leitura de disco fora do lock: meta.json é pequeno, mas segurar o
+        # lock durante I/O a cada poll de 1s bloquearia parar/patch atrás dele.
+        if pasta_gravacao is not None:
+            try:
+                snap["gravacao_projeto"] = meta.ler(pasta_gravacao).get("projeto") or None
+            except Exception:
+                pass
+        return snap
 
     def set_msg(self, msg: str) -> None:
         with self.lock:
@@ -179,6 +205,7 @@ class IniciarBody(BaseModel):
     hotwords: str = ""
     idioma: Optional[str] = None
     cliente: Optional[str] = None
+    projeto: Optional[str] = None
 
 
 class ReprocessarBody(BaseModel):
@@ -206,7 +233,86 @@ class PatchReuniaoBody(BaseModel):
     titulo: Optional[str] = None
     speaker_nomes: Optional[dict] = None
     cliente: Optional[str] = None
+    projeto: Optional[str] = None
     arquivada: Optional[bool] = None
+    sync_habilitado: Optional[bool] = None
+
+
+class LembreteBody(BaseModel):
+    titulo: str
+    descricao: Optional[str] = ""
+    data_hora: Optional[str] = None
+    reuniao: Optional[str] = None
+    cliente: Optional[str] = None
+    recorrencia: Optional[str] = ""
+
+
+class PatchLembreteBody(BaseModel):
+    titulo: Optional[str] = None
+    descricao: Optional[str] = None
+    data_hora: Optional[str] = None
+    reuniao: Optional[str] = None
+    cliente: Optional[str] = None
+    concluido: Optional[bool] = None
+    sync_habilitado: Optional[bool] = None
+    recorrencia: Optional[str] = None
+
+
+class AdiarBody(BaseModel):
+    minutos: Optional[int] = None
+    ate: Optional[str] = None
+
+
+class SyncChaveBody(BaseModel):
+    chave: str = ""
+
+
+class ClienteBody(BaseModel):
+    nome: str
+    valor_hora: float = 0.0
+
+
+class PatchClienteBody(BaseModel):
+    nome: Optional[str] = None
+    valor_hora: Optional[float] = None
+    ativo: Optional[bool] = None
+    sync_habilitado: Optional[bool] = None
+
+
+class ProjetoBody(BaseModel):
+    nome: str
+    cliente_id: Optional[str] = None
+
+
+class PatchProjetoBody(BaseModel):
+    nome: Optional[str] = None
+    # "" limpa o vínculo com cliente (seta NULL); omitido = não altera.
+    cliente_id: Optional[str] = None
+    ativo: Optional[bool] = None
+    sync_habilitado: Optional[bool] = None
+
+
+class ApontamentoBody(BaseModel):
+    cliente_id: Optional[str] = None
+    projeto_id: Optional[str] = None
+    descricao: Optional[str] = ""
+    inicio: str
+    fim: str
+
+
+class PatchApontamentoBody(BaseModel):
+    cliente_id: Optional[str] = None
+    projeto_id: Optional[str] = None
+    descricao: Optional[str] = None
+    inicio: Optional[str] = None
+    fim: Optional[str] = None
+    sync_habilitado: Optional[bool] = None
+
+
+class TimerIniciarBody(BaseModel):
+    cliente_id: Optional[str] = None
+    projeto_id: Optional[str] = None
+    descricao: Optional[str] = ""
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -288,12 +394,17 @@ def listar_reunioes_fs() -> list[dict]:
                 "idioma": m.get("idioma"),
                 "num_speakers": m.get("num_speakers"),
                 "cliente": m.get("cliente") or "",
+                "projeto": m.get("projeto") or "",
                 "arquivada": bool(m.get("arquivada")),
             })
     return out
 
 
 def pasta_da_reuniao(data: str, slug: str) -> Path:
+    # Segmentos vêm da URL: restringir charset impede escapar de BASE_DIR
+    # (ex.: data="..") antes de qualquer acesso ao filesystem.
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data) or not re.fullmatch(r"[\w-]+", slug):
+        raise HTTPException(404, f"Reunião não encontrada: {data}/{slug}")
     p = reuniao.BASE_DIR / data / slug
     if not p.is_dir():
         raise HTTPException(404, f"Reunião não encontrada: {data}/{slug}")
@@ -316,8 +427,13 @@ def limpar_erro():
 
 
 @app.get("/api/reunioes")
-def listar():
-    return listar_reunioes_fs()
+def listar(cliente: str = ""):
+    reunioes = listar_reunioes_fs()
+    cliente = cliente.strip()
+    if cliente:
+        alvo = cliente.lower()
+        reunioes = [r for r in reunioes if (r.get("cliente") or "").lower() == alvo]
+    return reunioes
 
 
 @app.get("/api/reunioes/{data}/{slug}/audio")
@@ -364,8 +480,18 @@ def patch_reuniao(data: str, slug: str, body: PatchReuniaoBody):
         campos["speaker_nomes"] = body.speaker_nomes
     if body.cliente is not None:
         campos["cliente"] = body.cliente.strip()
+    if body.projeto is not None:
+        campos["projeto"] = body.projeto.strip()
     if body.arquivada is not None:
         campos["arquivada"] = bool(body.arquivada)
+    if body.sync_habilitado is not None:
+        campos["sync_habilitado"] = bool(body.sync_habilitado)
+        # Marcação para sync (push-only, ver sync.py): a reunião ganha um
+        # `sync_id` estável (uuid4) na primeira vez que é marcada, usado como
+        # PK na tabela remota `reunioes`. Nunca regenerado depois disso.
+        if campos["sync_habilitado"] and not meta.ler(pasta).get("sync_id"):
+            import uuid
+            campos["sync_id"] = str(uuid.uuid4())
     if campos:
         return meta.escrever(pasta, **campos)
     return meta.ler(pasta)
@@ -413,11 +539,18 @@ class GravacaoAtivaError(RuntimeError):
 def iniciar_gravacao_servidor(titulo: str = "reuniao", modelo: str = "medium",
                               diarizar: bool = False, hotwords: str = "",
                               idioma: Optional[str] = None,
-                              cliente: Optional[str] = None) -> Path:
+                              cliente: Optional[str] = None,
+                              projeto: Optional[str] = None) -> Path:
     """
     Inicia uma gravação (usada pelo endpoint e pelo monitor de detecção).
     Levanta GravacaoAtivaError se já houver gravação; RuntimeError/SystemExit
     se os dispositivos de áudio falharem. Retorna a pasta criada.
+
+    `projeto`: diferente de `cliente` (que só é persistido no meta.json ao fim
+    do processamento, dentro de reuniao.processar), `projeto` é gravado aqui,
+    logo após criar a pasta — reuniao.py não pode ser tocado nesta tarefa, e
+    seu meta.escrever(...) final não referencia "projeto", então o merge feito
+    por meta.escrever preserva este valor até a conclusão do processamento.
     """
     with estado.lock:
         # Bloqueia APENAS se já houver gravação ativa — nunca por processamento
@@ -429,6 +562,10 @@ def iniciar_gravacao_servidor(titulo: str = "reuniao", modelo: str = "medium",
         pasta = (reuniao.BASE_DIR / agora.strftime("%Y-%m-%d")
                  / f"{agora.strftime('%H-%M')}-{titulo_limpo}")
         pasta.mkdir(parents=True, exist_ok=True)
+
+        projeto_limpo = (projeto or "").strip()
+        if projeto_limpo:
+            meta.escrever(pasta, projeto=projeto_limpo)
 
         monitor_disp, mic = reuniao.detectar_dispositivos()
         proc = reuniao.iniciar_gravacao(pasta, monitor_disp, mic)
@@ -464,12 +601,54 @@ def _esta_gravando() -> bool:
 monitor.iniciar(iniciar_gravacao_servidor, _esta_gravando)
 
 
+@app.get("/api/gravacao/cliente-sugerido")
+def cliente_sugerido():
+    """
+    Heurística simples (sem ML, sem rede) para sugerir o cliente da próxima
+    gravação:
+      1) se a detecção estiver ativa e tiver um app/termo detectado agora,
+         procura nas últimas 20 reuniões qual cliente mais aparece em
+         títulos que casam com esse termo;
+      2) senão, usa o cliente mais frequente nas reuniões dos últimos 7 dias;
+      3) senão, None.
+    """
+    reunioes = listar_reunioes_fs()  # já ordenado do mais recente para o mais antigo
+
+    det = estado.snapshot()["deteccao"]
+    termo = (det.get("app") or "").strip().lower() if det.get("ativa") and det.get("detectado") else ""
+    if termo:
+        contagem: dict[str, int] = {}
+        for r in reunioes[:20]:
+            cli = (r.get("cliente") or "").strip()
+            if not cli:
+                continue
+            if termo in (r.get("titulo") or "").lower():
+                contagem[cli] = contagem.get(cli, 0) + 1
+        if contagem:
+            melhor = max(contagem.items(), key=lambda kv: kv[1])[0]
+            return {"cliente": melhor, "origem": "deteccao"}
+
+    limite = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    contagem = {}
+    for r in reunioes:
+        if (r.get("data") or "") < limite:
+            continue
+        cli = (r.get("cliente") or "").strip()
+        if cli:
+            contagem[cli] = contagem.get(cli, 0) + 1
+    if contagem:
+        melhor = max(contagem.items(), key=lambda kv: kv[1])[0]
+        return {"cliente": melhor, "origem": "historico"}
+
+    return {"cliente": None, "origem": None}
+
+
 @app.post("/api/gravar/iniciar")
 def iniciar(body: IniciarBody):
     try:
         pasta = iniciar_gravacao_servidor(body.titulo, body.modelo,
                                           body.diarizar, body.hotwords,
-                                          body.idioma, body.cliente)
+                                          body.idioma, body.cliente, body.projeto)
     except GravacaoAtivaError as e:
         raise HTTPException(409, str(e))
     except (RuntimeError, SystemExit) as e:
@@ -572,23 +751,278 @@ def buscar_endpoint(q: str = ""):
     return busca.buscar(q, reuniao.BASE_DIR)
 
 
-@app.get("/api/relatorio")
-def relatorio_endpoint(mes: str = "", cliente: str = ""):
+def _gerar_relatorio(mes: str, cliente: str, inicio: str = "", fim: str = "") -> dict:
     valores_hora = config.carregar().get("valores_hora", {})
-    return relatorio.gerar(listar_reunioes_fs(), mes, cliente, valores_hora)
+    clientes = horas.listar_clientes(incluir_inativos=True)
+    projetos = horas.listar_projetos(incluir_inativos=True)
+    # Com intervalo válido, o filtro de data é feito em relatorio.gerar() sobre
+    # TODOS os apontamentos (o prefixo de mês não cobriria um intervalo que
+    # cruza meses); sem intervalo, mantém o pré-filtro por mês (retrocompat).
+    if relatorio.intervalo_valido(inicio, fim):
+        apontamentos = horas.todos_apontamentos_periodo(None)
+    else:
+        apontamentos = horas.todos_apontamentos_periodo(mes.strip() or relatorio.mes_corrente())
+    return relatorio.gerar(listar_reunioes_fs(), apontamentos, mes, cliente,
+                           clientes, projetos, valores_hora, inicio=inicio, fim=fim)
+
+
+@app.get("/api/relatorio")
+def relatorio_endpoint(mes: str = "", cliente: str = "", inicio: str = "", fim: str = ""):
+    return _gerar_relatorio(mes, cliente, inicio, fim)
 
 
 @app.get("/api/relatorio/csv")
-def relatorio_csv_endpoint(mes: str = "", cliente: str = ""):
-    valores_hora = config.carregar().get("valores_hora", {})
-    dados = relatorio.gerar(listar_reunioes_fs(), mes, cliente, valores_hora)
-    csv_texto = relatorio.para_csv(dados, valores_hora)
-    nome = f"relatorio-{dados['mes']}.csv"
+def relatorio_csv_endpoint(mes: str = "", cliente: str = "", inicio: str = "", fim: str = ""):
+    dados = _gerar_relatorio(mes, cliente, inicio, fim)
+    csv_texto = relatorio.para_csv(dados)
+    if dados.get("filtro_inicio") and dados.get("filtro_fim"):
+        nome = f"relatorio-{dados['filtro_inicio']}_a_{dados['filtro_fim']}.csv"
+    else:
+        nome = f"relatorio-{dados['mes']}.csv"
     return Response(
         content=csv_texto,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
+
+
+@app.get("/api/dashboard")
+def dashboard_endpoint(ref: str = ""):
+    clientes = horas.listar_clientes(incluir_inativos=True)
+    apontamentos = horas.listar_apontamentos()
+    return dashboard.gerar(listar_reunioes_fs(), apontamentos, ref or None, clientes)
+
+
+@app.get("/api/lembretes")
+def listar_lembretes(incluir_concluidos: bool = False):
+    return lembretes.listar(incluir_concluidos=incluir_concluidos)
+
+
+@app.post("/api/lembretes")
+def criar_lembrete(body: LembreteBody):
+    try:
+        criado = lembretes.criar(
+            body.titulo, body.descricao or "", body.data_hora, body.reuniao, body.cliente,
+            recorrencia=body.recorrencia or "",
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    sync.sincronizar_em_background()
+    return criado
+
+
+@app.patch("/api/lembretes/{id}")
+def atualizar_lembrete(id: str, body: PatchLembreteBody):
+    try:
+        atualizado = lembretes.atualizar(id, **body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if atualizado is None:
+        raise HTTPException(404, "Lembrete não encontrado")
+    sync.sincronizar_em_background()
+    return atualizado
+
+
+@app.post("/api/lembretes/{id}/excluir")
+def excluir_lembrete(id: str):
+    if not lembretes.excluir(id):
+        raise HTTPException(404, "Lembrete não encontrado")
+    sync.sincronizar_em_background()
+    return {"ok": True}
+
+
+@app.get("/api/lembretes/vencidos")
+def lembretes_vencidos():
+    return lembretes.vencidos()
+
+
+@app.get("/api/lembretes/pendentes-notificacao")
+def lembretes_pendentes_notificacao():
+    """Autoridade do agendador: calcula e marca (idempotente) os marcos de
+    notificação pendentes. Consumido pelo processo main do Electron."""
+    cfg = config.carregar().get("notificacoes", {})
+    return lembretes.pendentes_notificacao(cfg)
+
+
+@app.post("/api/lembretes/{id}/adiar")
+def adiar_lembrete(id: str, body: AdiarBody):
+    try:
+        atualizado = lembretes.adiar(id, minutos=body.minutos, ate=body.ate)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if atualizado is None:
+        raise HTTPException(404, "Lembrete não encontrado")
+    sync.sincronizar_em_background()
+    return atualizado
+
+
+@app.post("/api/sync/agora")
+def sync_agora():
+    cfg = config.carregar().get("sync", {})
+    if not cfg.get("ativo") or not (cfg.get("url") or "").strip():
+        raise HTTPException(400, "Sincronização desativada ou URL não configurada")
+    return sync.sincronizar()
+
+
+@app.post("/api/sync/chave")
+def sync_salvar_chave(body: SyncChaveBody):
+    sync.salvar_chave(body.chave)
+    return {"configurada": sync.chave_configurada()}
+
+
+@app.post("/api/sync/testar")
+def sync_testar():
+    return sync.testar()
+
+
+@app.get("/api/sync/status")
+def sync_status():
+    return sync.status()
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Timetracking: clientes, projetos, apontamentos e timer
+# ────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/clientes")
+def listar_clientes_endpoint(incluir_inativos: bool = False):
+    return horas.listar_clientes(incluir_inativos=incluir_inativos)
+
+
+@app.post("/api/clientes")
+def criar_cliente_endpoint(body: ClienteBody):
+    try:
+        criado = horas.criar_cliente(body.nome, body.valor_hora)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    sync.sincronizar_em_background()
+    return criado
+
+
+@app.patch("/api/clientes/{id}")
+def atualizar_cliente_endpoint(id: str, body: PatchClienteBody):
+    try:
+        atualizado = horas.atualizar_cliente(id, **body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if atualizado is None:
+        raise HTTPException(404, "Cliente não encontrado")
+    sync.sincronizar_em_background()
+    return atualizado
+
+
+@app.post("/api/clientes/{id}/excluir")
+def excluir_cliente_endpoint(id: str):
+    if not horas.excluir_cliente(id):
+        raise HTTPException(404, "Cliente não encontrado")
+    sync.sincronizar_em_background()
+    return {"ok": True}
+
+
+@app.get("/api/projetos")
+def listar_projetos_endpoint(cliente_id: str = "", incluir_inativos: bool = False):
+    return horas.listar_projetos(cliente_id=cliente_id or None, incluir_inativos=incluir_inativos)
+
+
+@app.post("/api/projetos")
+def criar_projeto_endpoint(body: ProjetoBody):
+    try:
+        criado = horas.criar_projeto(body.nome, cliente_id=body.cliente_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    sync.sincronizar_em_background()
+    return criado
+
+
+@app.patch("/api/projetos/{id}")
+def atualizar_projeto_endpoint(id: str, body: PatchProjetoBody):
+    try:
+        atualizado = horas.atualizar_projeto(id, **body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if atualizado is None:
+        raise HTTPException(404, "Projeto não encontrado")
+    sync.sincronizar_em_background()
+    return atualizado
+
+
+@app.post("/api/projetos/{id}/excluir")
+def excluir_projeto_endpoint(id: str):
+    if not horas.excluir_projeto(id):
+        raise HTTPException(404, "Projeto não encontrado")
+    sync.sincronizar_em_background()
+    return {"ok": True}
+
+
+@app.get("/api/apontamentos")
+def listar_apontamentos_endpoint(mes: str = "", cliente_id: str = "", projeto_id: str = ""):
+    return horas.listar_apontamentos(mes=mes or None, cliente_id=cliente_id or None,
+                                     projeto_id=projeto_id or None)
+
+
+@app.post("/api/apontamentos")
+def criar_apontamento_endpoint(body: ApontamentoBody):
+    try:
+        criado = horas.criar_apontamento(
+            body.inicio, body.fim,
+            cliente_id=body.cliente_id, projeto_id=body.projeto_id,
+            descricao=body.descricao or "",
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    sync.sincronizar_em_background()
+    return criado
+
+
+@app.patch("/api/apontamentos/{id}")
+def atualizar_apontamento_endpoint(id: str, body: PatchApontamentoBody):
+    try:
+        atualizado = horas.atualizar_apontamento(id, **body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if atualizado is None:
+        raise HTTPException(404, "Apontamento não encontrado")
+    sync.sincronizar_em_background()
+    return atualizado
+
+
+@app.post("/api/apontamentos/{id}/excluir")
+def excluir_apontamento_endpoint(id: str):
+    if not horas.excluir_apontamento(id):
+        raise HTTPException(404, "Apontamento não encontrado")
+    sync.sincronizar_em_background()
+    return {"ok": True}
+
+
+@app.get("/api/horas/timer")
+def timer_status_endpoint():
+    ativo = horas.timer_ativo()
+    return {"ativo": ativo is not None, "apontamento": ativo}
+
+
+@app.post("/api/horas/timer/iniciar")
+def timer_iniciar_endpoint(body: TimerIniciarBody):
+    try:
+        criado = horas.timer_iniciar(
+            projeto_id=body.projeto_id, cliente_id=body.cliente_id,
+            descricao=body.descricao or "",
+        )
+    except horas.TimerAtivoError as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    sync.sincronizar_em_background()
+    return criado
+
+
+@app.post("/api/horas/timer/parar")
+def timer_parar_endpoint():
+    try:
+        parado = horas.timer_parar()
+    except horas.TimerInativoError as e:
+        raise HTTPException(409, str(e))
+    sync.sincronizar_em_background()
+    return parado
 
 
 # ────────────────────────────────────────────────────────────────────────────

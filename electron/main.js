@@ -13,6 +13,7 @@ const PORT = 8654;
 const POLL_INTERVAL_MS = 300;
 const POLL_TIMEOUT_MS = 30_000;
 const STATUS_POLL_MS = 2000;
+const LEMBRETES_POLL_MS = 60_000; // agendador de notificações de lembretes
 const ATALHO_GRAVAR = "Ctrl+Alt+R";
 
 const AUTOSTART_DIR = path.join(os.homedir(), ".config", "autostart");
@@ -28,6 +29,7 @@ let hiddenBoot = process.argv.includes("--hidden");
 // Estado conhecido do backend (atualizado pelo polling)
 let estadoAtual = { gravando: false, duracao_s: 0 };
 let statusTimer = null;
+let lembretesTimer = null;
 
 function serverCommand() {
   if (app.isPackaged) {
@@ -371,6 +373,71 @@ function iniciarPollingStatus() {
   statusTimer = setInterval(consultarStatus, STATUS_POLL_MS);
 }
 
+// --- Agendador de notificações de lembretes (autoridade no backend) ---
+// Roda no processo main (não sofre throttling do renderer oculto), então
+// avisa mesmo com a janela fechada/na bandeja. Ver notificacoes.md.
+
+function abrirTelaLembretes() {
+  createWindow();
+  const wc = mainWindow && mainWindow.webContents;
+  if (!wc) return;
+  const nav = () => wc.executeJavaScript("window.mostrarTela && mostrarTela('lembretes')").catch(() => {});
+  if (wc.isLoading()) wc.once("did-finish-load", nav);
+  else nav();
+}
+
+function formatarQuando(dataHora) {
+  // "AAAA-MM-DDTHH:MM[:SS]" -> "DD/MM HH:MM"
+  if (!dataHora || typeof dataHora !== "string" || !dataHora.includes("T")) return "";
+  const [d, h] = dataHora.split("T");
+  const [ano, mes, dia] = d.split("-");
+  if (!dia || !mes) return "";
+  return `${dia}/${mes} ${(h || "").slice(0, 5)}`;
+}
+
+// Compõe a notificação consolidada de um grupo (mesmo nível), com contagem.
+function comporNotificacaoGrupo(grupo) {
+  const itens = grupo.itens || [];
+  const n = grupo.count || itens.length;
+  const primeiro = itens[0] || {};
+  const rotulos = {
+    dia: { um: "Lembrete amanhã", muitos: `${n} lembretes para amanhã` },
+    hora: { um: "Lembrete em breve", muitos: `${n} lembretes em breve` },
+    agora: { um: "Lembrete agora", muitos: `${n} lembretes agora` },
+    vencido: { um: "Lembrete vencido", muitos: `Você tem ${n} lembretes vencidos` },
+  }[grupo.categoria] || { um: "Lembrete", muitos: `${n} lembretes` };
+
+  if (n <= 1) {
+    const quando = formatarQuando(primeiro.data_hora);
+    const verbo = grupo.categoria === "vencido" ? "venceu" : "prazo";
+    const corpo = quando ? `${primeiro.titulo} — ${verbo} ${quando}` : primeiro.titulo;
+    return { titulo: rotulos.um, corpo };
+  }
+  const nomes = itens.slice(0, 2).map((i) => i.titulo).filter(Boolean);
+  const resto = n - nomes.length;
+  let corpo = nomes.join(", ");
+  if (resto > 0) corpo += ` e mais ${resto}`;
+  corpo += " · toque para ver";
+  return { titulo: rotulos.muitos, corpo };
+}
+
+async function consultarLembretes() {
+  try {
+    const resp = await httpGetJson("/api/lembretes/pendentes-notificacao");
+    const grupos = (resp && resp.grupos) || [];
+    for (const grupo of grupos) {
+      const { titulo, corpo } = comporNotificacaoGrupo(grupo);
+      notificarClicavel(titulo, corpo, abrirTelaLembretes);
+    }
+  } catch (_) {
+    // backend pode estar indisponível momentaneamente — ignora
+  }
+}
+
+function iniciarPollingLembretes() {
+  lembretesTimer = setInterval(consultarLembretes, LEMBRETES_POLL_MS);
+}
+
 // --- Single instance ---
 
 const obteveLock = app.requestSingleInstanceLock();
@@ -390,7 +457,9 @@ if (!obteveLock) {
 
       criarTray();
       iniciarPollingStatus();
+      iniciarPollingLembretes();
       await consultarStatus();
+      await consultarLembretes();
 
       if (!hiddenBoot) {
         createWindow();
@@ -412,6 +481,7 @@ if (!obteveLock) {
   app.on("before-quit", () => {
     isQuitting = true;
     if (statusTimer) clearInterval(statusTimer);
+    if (lembretesTimer) clearInterval(lembretesTimer);
     globalShortcut.unregisterAll();
     stopServer();
   });

@@ -3,298 +3,724 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reuniões</title>
+  <title>Sekra</title>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎙️</text></svg>">
 </head>
 <body>
-  <header>
-    <h1>🎙️ Reuniões</h1>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <!-- Detecção de reunião: badge discreto, some ao gravar -->
-      <button id="badge-deteccao" title="Iniciar gravação" hidden>Reunião detectada — Gravar?</button>
-      <div id="status-badge" class="status-idle">ocioso</div>
-      <!-- Feature 12: botão de Relatório de horas -->
-      <button id="btn-relatorio" class="btn-toggle" title="Relatório de horas">📊</button>
-      <button id="btn-config" class="btn-toggle" title="Configurações">⚙️</button>
-      <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
-    </div>
-  </header>
 
-  <div id="banner-erro" hidden>
-    <span id="banner-erro-msg"></span>
-    <button onclick="limparErro()">Dispensar</button>
+  <!-- Barra de janela decorativa -->
+  <div class="winbar">
+    <div class="winbar-dots"><span></span><span></span><span></span></div>
+    <div class="winbar-brand">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2.5" y="2.5" width="11" height="11" stroke="oklch(70% 0.16 260)" stroke-width="1.3" transform="rotate(45 8 8)"/>
+        <rect x="2.5" y="2.5" width="11" height="11" stroke="oklch(85% 0.09 260)" stroke-width="1.3" transform="rotate(15 8 8)"/>
+      </svg>
+      SEKRA
+    </div>
   </div>
 
-  <!-- Toast de notificação inline (não bloqueia) -->
+  <div class="shell">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-logo" aria-hidden="true">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <rect x="6" y="6" width="22" height="22" stroke="oklch(70% 0.16 260)" stroke-width="1.6" transform="rotate(45 17 17)"/>
+          <rect x="6" y="6" width="22" height="22" stroke="oklch(85% 0.09 260)" stroke-width="1.6" transform="rotate(15 17 17)"/>
+        </svg>
+      </div>
+      <button class="nav-item" data-screen="painel" title="Painel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+        <span>Painel</span>
+      </button>
+      <button class="nav-item ativo" data-screen="gravacoes" title="Gravações">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+        <span>Gravações</span>
+      </button>
+      <button class="nav-item" data-screen="timer" title="Timer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M9 2h6"/></svg>
+        <span>Timer</span>
+      </button>
+      <button class="nav-item" data-screen="clientes" title="Clientes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8.5" cy="8" r="3.2"/><circle cx="16" cy="9.5" r="2.6"/><path d="M2.5 20c.6-3.6 3-5.6 6-5.6s5.4 2 6 5.6"/><path d="M14.5 14.6c2.4.2 4.3 2 4.8 5"/></svg>
+        <span>Clientes</span>
+      </button>
+      <button class="nav-item" data-screen="lembretes" title="Lembretes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 10a6 6 0 0112 0v4l1.6 3H4.4L6 14z"/><path d="M9.5 19a2.5 2.5 0 005 0"/></svg>
+        <span>Lembretes</span>
+        <span id="badge-lembretes" class="nav-badge" hidden>0</span>
+      </button>
+      <button class="nav-item" data-screen="config" title="Configurações">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3L5.6 5.6"/></svg>
+        <span>Config</span>
+      </button>
+    </nav>
+
+    <div class="main-col">
+      <!-- Topbar -->
+      <div class="topbar">
+        <input type="text" id="topbar-desc" placeholder="O que você está fazendo?">
+        <div id="topbar-picker"></div>
+        <button id="badge-deteccao" title="Iniciar gravação" hidden>Reunião detectada — Gravar?</button>
+        <div id="status-badge" class="status-idle">ocioso</div>
+        <span id="badge-timer" class="status-recording" title="Timer de horas ativo — clique para abrir" hidden>⏱ 00:00</span>
+        <div class="topbar-spacer"></div>
+        <span id="topbar-tempo" class="mono-time" hidden>00:00</span>
+        <button id="btn-timer-pill" class="pill pill-outline">⏱ Timer</button>
+        <button id="btn-gravar-pill" class="pill pill-danger-outline">● Gravar</button>
+      </div>
+
+      <div id="banner-erro" hidden>
+        <span id="banner-erro-msg"></span>
+        <button onclick="limparErro()">Dispensar</button>
+      </div>
+
+      <!-- Indicador de fila/processamento -->
+      <div id="status-processamento" hidden></div>
+
+      <div class="content-row">
+        <main class="screen-area">
+
+          <!-- ═══════════ Tela: Painel ═══════════ -->
+          <section id="screen-painel" class="screen" hidden>
+            <div class="painel-diamantes"><span></span><span></span><span></span></div>
+            <h2 class="painel-titulo">Painel</h2>
+            <div class="painel-kpis">
+              <div class="painel-kpi-card">
+                <div class="painel-kpi-valor" id="painel-kpi-tempo">0h00</div>
+                <div class="painel-kpi-label">Tempo esta semana</div>
+                <div class="painel-kpi-sub" id="painel-kpi-semana"></div>
+              </div>
+              <div class="painel-kpi-card">
+                <div class="painel-kpi-valor" id="painel-kpi-reunioes">0</div>
+                <div class="painel-kpi-label">Reuniões esta semana</div>
+                <div class="painel-kpi-sub" id="painel-kpi-semana2"></div>
+              </div>
+            </div>
+            <div class="painel-grid">
+              <div class="painel-card">
+                <h3>Reuniões recentes</h3>
+                <div id="painel-recentes"><p class="dica">Carregando…</p></div>
+              </div>
+              <div class="painel-card">
+                <h3>Por cliente (semana)</h3>
+                <div id="painel-por-cliente"><p class="dica">Carregando…</p></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══════════ Tela: Gravações ═══════════ -->
+          <section id="screen-gravacoes" class="screen">
+            <section id="painel-gravar">
+              <div id="grav-estado-idle" class="grav-estado grav-estado-idle">
+                <div class="grav-idle-icone">🎙️</div>
+                <p class="grav-idle-titulo">Nenhuma gravação em andamento</p>
+                <p class="dica">Dica: a detecção automática avisa no topo quando uma reunião começa — ou clique em "Iniciar gravação" abaixo.</p>
+              </div>
+              <div id="grav-estado-ativa" class="grav-estado grav-estado-ativa" hidden>
+                <div class="grav-circulo"><span class="grav-circulo-pulso"></span><span class="grav-circulo-nucleo"></span></div>
+                <div id="cronometro-grande" class="grav-timer-grande">00:00</div>
+                <div id="grav-cliente-linha" class="grav-cliente-linha">Cliente: —</div>
+              </div>
+
+              <div id="grav-sugestao-cliente" class="grav-sugestao" hidden>
+                <span>Cliente sugerido: <b id="grav-sugestao-nome"></b></span>
+                <button type="button" id="btn-aceitar-sugestao">Usar</button>
+              </div>
+
+              <div class="form-row">
+                <input type="text" id="titulo" placeholder="Título da reunião" value="reuniao">
+                <select id="modelo">
+                  <option value="small">small (rápido)</option>
+                  <option value="medium" selected>medium</option>
+                  <option value="large-v3">large-v3 (preciso)</option>
+                </select>
+                <select id="idioma" title="Idioma da gravação">
+                  <option value="auto" selected>auto</option>
+                  <option value="pt">pt</option>
+                  <option value="en">en</option>
+                  <option value="es">es</option>
+                </select>
+                <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
+              </div>
+              <div class="form-row">
+                <input type="text" id="cliente" list="lista-clientes" placeholder="Cliente (faturamento)">
+                <input type="text" id="grav-projeto" list="lista-projetos-gravacao" placeholder="Projeto (opcional)">
+                <datalist id="lista-clientes"></datalist>
+                <datalist id="lista-projetos-gravacao"></datalist>
+              </div>
+              <div class="form-row">
+                <label class="check">
+                  <input type="checkbox" id="diarizar"> Diarizar (quem falou o quê)
+                </label>
+                <input type="text" id="hotwords" placeholder="hotwords: patrick, zelo, lgpd">
+              </div>
+              <div class="form-row actions">
+                <button id="btn-iniciar" class="primary">● INICIAR GRAVAÇÃO</button>
+                <button id="btn-parar" class="danger" hidden>⏹ PARAR</button>
+                <span id="cronometro" hidden>00:00</span>
+              </div>
+              <p id="msg-status" class="msg"></p>
+            </section>
+
+            <main class="gravacoes-main">
+              <aside id="lista-reunioes">
+                <h2>Reuniões</h2>
+                <div class="filtro-wrap">
+                  <input id="filtro" type="text" placeholder="Filtrar / buscar no conteúdo…" autocomplete="off">
+                  <button id="btn-limpar-filtro" class="btn-limpar-filtro" title="Limpar busca" hidden>✕</button>
+                </div>
+                <ul id="ul-reunioes"><li class="vazio">carregando...</li></ul>
+              </aside>
+
+              <section id="detalhes">
+                <div id="placeholder">
+                  <p>Selecione uma reunião à esquerda<br>ou inicie uma nova gravação acima.</p>
+                </div>
+
+                <div id="conteudo" hidden>
+                  <div class="det-header">
+                    <div style="flex:1;min-width:0;">
+                      <div id="titulo-view" style="display:flex;align-items:center;gap:8px;">
+                        <h2 id="det-titulo"></h2>
+                        <button id="btn-editar-titulo" class="btn-icon" title="Editar título">✏️</button>
+                      </div>
+                      <div id="titulo-edit" style="display:none;align-items:center;gap:8px;">
+                        <input id="input-titulo" type="text" style="font-size:16px;font-weight:600;">
+                        <button id="btn-salvar-titulo" class="primary" style="padding:6px 12px;">✓</button>
+                        <button id="btn-cancelar-titulo" style="padding:6px 12px;">✕</button>
+                      </div>
+                      <p id="det-meta" class="meta"></p>
+                      <div id="det-cliente-view">
+                        <span id="det-cliente" title="Clique para editar"></span>
+                      </div>
+                      <div id="det-cliente-edit" style="display:none;align-items:center;gap:8px;">
+                        <input id="input-cliente" type="text" list="lista-clientes" style="font-size:12px;padding:4px 8px;">
+                      </div>
+                      <div id="det-projeto-view">
+                        <span id="det-projeto" title="Clique para editar"></span>
+                      </div>
+                      <div id="det-projeto-edit" style="display:none;align-items:center;gap:8px;">
+                        <input id="input-projeto" type="text" list="lista-projetos-gravacao" style="font-size:12px;padding:4px 8px;">
+                      </div>
+                      <label class="check det-sync-linha" id="det-sync-linha" title="Envia transcrição + resumo desta reunião ao Supabase (nunca o áudio)">
+                        <input type="checkbox" id="det-sync-toggle"> ☁ Sincronizar esta reunião na nuvem (transcrição + resumo, sem áudio)
+                      </label>
+                    </div>
+                    <button id="btn-exportar" class="btn-icon-label" title="Exportar reunião">↗ Exportar</button>
+                    <button id="btn-lembrete-reuniao" class="btn-icon-label" title="Criar lembrete para esta reunião">🔔 + Lembrete</button>
+                    <button id="btn-excluir" class="danger-outline" title="Excluir reunião">🗑 Excluir</button>
+                    <div id="confirm-excluir" style="display:none;align-items:center;gap:8px;">
+                      <span style="font-size:12px;color:var(--text-2)">Excluir?</span>
+                      <button class="danger" onclick="confirmarExcluir()">Confirmar</button>
+                      <button onclick="cancelarConfirmacaoExcluir()">Cancelar</button>
+                    </div>
+                  </div>
+
+                  <audio id="player" controls></audio>
+
+                  <div class="tabs">
+                    <button class="tab ativa" data-tab="transcricao">Transcrição</button>
+                    <button class="tab" data-tab="resumo">Resumo</button>
+                    <button class="tab" data-tab="hotwords">Hotwords</button>
+                    <button class="tab" data-tab="reprocessar">Reprocessar</button>
+                  </div>
+
+                  <div class="tab-content" id="tab-transcricao">
+                    <div class="tab-toolbar">
+                      <button id="btn-copiar-trans" class="btn-icon-label" title="Copiar transcrição">⎘ Copiar</button>
+                    </div>
+                    <div id="transcricao-render"></div>
+                  </div>
+
+                  <div class="tab-content" id="tab-resumo" hidden>
+                    <div id="resumo-render"></div>
+                    <button id="btn-gerar-resumo" class="primary" hidden>✦ Gerar resumo</button>
+                  </div>
+
+                  <div class="tab-content" id="tab-hotwords" hidden>
+                    <div id="hotwords-render"></div>
+                  </div>
+
+                  <div class="tab-content" id="tab-reprocessar" hidden>
+                    <p class="dica">Reprocessa os arquivos de áudio existentes com novas opções.</p>
+                    <div class="form-row">
+                      <select id="re-modelo">
+                        <option value="small">small</option>
+                        <option value="medium" selected>medium</option>
+                        <option value="large-v3">large-v3</option>
+                      </select>
+                      <label class="check">
+                        <input type="checkbox" id="re-diarizar"> Diarizar
+                      </label>
+                      <select id="re-idioma" title="Idioma">
+                        <option value="auto" selected>auto</option>
+                        <option value="pt">pt</option>
+                        <option value="en">en</option>
+                        <option value="es">es</option>
+                      </select>
+                    </div>
+                    <div class="form-row">
+                      <input type="text" id="re-hotwords" placeholder="hotwords (opcional)">
+                    </div>
+                    <button id="btn-reprocessar" class="primary">Reprocessar</button>
+                  </div>
+                </div>
+              </section>
+            </main>
+          </section>
+
+          <!-- ═══════════ Tela: Timer ═══════════ -->
+          <section id="screen-timer" class="screen" hidden>
+            <div class="tela-painel tela-painel-lg">
+              <div class="modal-header">
+                <h3>Timer</h3>
+              </div>
+              <div class="tabs-horas">
+                <button class="tab-horas ativa" data-tab-horas="timer">Timer &amp; Lançamentos</button>
+                <button class="tab-horas" data-tab-horas="relatorio">Relatório</button>
+              </div>
+              <div class="modal-body">
+                <div class="tab-content-horas" id="tabh-timer">
+                  <div class="horas-timer-box">
+                    <div class="config-group">
+                      <input type="text" id="horas-desc" placeholder="O que você está fazendo?">
+                    </div>
+                    <div class="config-group">
+                      <div id="horas-picker"></div>
+                    </div>
+                    <div class="horas-manual">
+                      <label class="horas-campo">
+                        <span>Data</span>
+                        <input type="date" id="lanc-data">
+                      </label>
+                      <label class="horas-campo">
+                        <span>Início</span>
+                        <input type="time" id="lanc-hora-inicio">
+                      </label>
+                      <label class="horas-campo">
+                        <span>Fim</span>
+                        <input type="time" id="lanc-hora-fim">
+                      </label>
+                      <div class="horas-atalhos">
+                        <button type="button" id="btn-retro-hoje" class="btn-icon-label">Hoje</button>
+                        <button type="button" id="btn-retro-ontem" class="btn-icon-label">Ontem</button>
+                      </div>
+                    </div>
+                    <p class="config-hint">Deixe data/horários em branco e toque ▶ para iniciar o cronômetro; preencha-os e o botão vira ✓ para salvar um registro passado. Fim menor que início = dia seguinte.</p>
+                    <p id="lanc-erro" class="config-hint" style="color:var(--danger);" hidden></p>
+                    <div class="horas-acao">
+                      <button id="btn-timer-toggle" class="primary horas-play-btn" title="Iniciar timer">▶</button>
+                      <span id="horas-cronometro" class="horas-cronometro">00:00</span>
+                    </div>
+                  </div>
+
+                  <hr class="config-sep">
+
+                  <p class="config-label">Lançamentos do mês</p>
+                  <div id="apont-lista"></div>
+                </div>
+
+                <div class="tab-content-horas" id="tabh-relatorio" hidden>
+                  <div class="config-group config-row" style="gap:10px;flex-wrap:wrap;">
+                    <input type="month" id="rel-mes">
+                    <select id="rel-cliente" style="flex:1;">
+                      <option value="">todos os clientes</option>
+                    </select>
+                  </div>
+                  <div class="config-group config-row" style="gap:10px;flex-wrap:wrap;">
+                    <label class="horas-campo">
+                      <span>De</span>
+                      <input type="date" id="rel-inicio">
+                    </label>
+                    <label class="horas-campo">
+                      <span>Até</span>
+                      <input type="date" id="rel-fim">
+                    </label>
+                  </div>
+                  <p class="config-hint">Preencher "De"/"Até" filtra por intervalo de datas e tem prioridade sobre o mês acima.</p>
+                  <div class="rel-print-area" id="rel-print-area">
+                    <div id="rel-cabecalho-impressao" class="rel-cabecalho-impressao"></div>
+                    <div id="rel-render"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <a id="btn-rel-csv" class="btn-icon-label" href="#" target="_blank">⬇ Exportar CSV</a>
+                <button type="button" id="btn-rel-pdf" class="btn-icon-label">🖨 Exportar PDF</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══════════ Tela: Clientes (mestre-detalhe) ═══════════ -->
+          <section id="screen-clientes" class="screen" hidden>
+            <div class="clientes-md">
+              <aside class="clientes-md-lista">
+                <div class="clientes-md-novo">
+                  <input type="text" id="mcli-nome" placeholder="Nome do cliente">
+                  <input type="text" id="mcli-valor" placeholder="R$/h (opcional)">
+                  <button id="btn-mcli-criar" class="primary">+ Cliente</button>
+                </div>
+                <div id="mcli-lista"><p class="dica">Carregando…</p></div>
+              </aside>
+              <section class="clientes-md-detalhe">
+                <div class="clientes-md-vazio" id="mcli-vazio">
+                  <p class="dica">Selecione um cliente à esquerda.</p>
+                </div>
+                <div id="mcli-conteudo" hidden>
+                  <div class="mcli-header">
+                    <div class="avatar-quad mcli-avatar" id="mcli-avatar"></div>
+                    <div class="mcli-header-body">
+                      <h2 id="mcli-nome-view"></h2>
+                      <div class="mcli-total mono-time" id="mcli-total">0min</div>
+                    </div>
+                  </div>
+
+                  <div class="config-group config-row" style="gap:10px;flex-wrap:wrap;">
+                    <label class="config-label" style="min-width:auto;">Valor/h</label>
+                    <input type="text" id="mcli-edit-valor" placeholder="R$/h" style="max-width:120px;">
+                    <button id="btn-mcli-salvar-valor" class="btn-icon-label">Salvar</button>
+                    <label class="check" style="margin-left:auto;">
+                      <input type="checkbox" id="mcli-edit-ativo"> Ativo
+                    </label>
+                    <button id="btn-mcli-excluir" class="btn-icon-label" style="color:var(--danger);border-color:var(--danger);">Excluir cliente</button>
+                  </div>
+
+                  <hr class="config-sep">
+
+                  <div class="mcli-secao">
+                    <div class="mcli-secao-header">
+                      <h3>Projetos vinculados</h3>
+                      <button id="btn-mcli-novo-projeto" class="btn-icon-label">+ Vincular projeto</button>
+                    </div>
+                    <div id="mcli-form-projeto" class="config-group config-row" style="gap:8px;" hidden>
+                      <input type="text" id="mcli-projeto-nome" placeholder="Nome do projeto" style="flex:1;">
+                      <button id="btn-mcli-salvar-projeto" class="primary">Salvar</button>
+                      <button id="btn-mcli-cancelar-projeto" class="btn-icon-label">Cancelar</button>
+                    </div>
+                    <div id="mcli-projetos-lista"></div>
+                  </div>
+
+                  <hr class="config-sep">
+
+                  <div class="mcli-secao">
+                    <h3 class="mcli-secao-titulo-solo">Gravações vinculadas</h3>
+                    <div id="mcli-gravacoes-lista"></div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <!-- ═══════════ Tela: Lembretes ═══════════ -->
+          <section id="screen-lembretes" class="screen" hidden>
+            <div class="tela-painel">
+              <div class="modal-header">
+                <h3>Lembretes</h3>
+              </div>
+              <div class="modal-body">
+                <div id="lem-reuniao-info" class="lem-reuniao-info" hidden>
+                  <span id="lem-reuniao-texto"></span>
+                  <button id="lem-reuniao-clear" class="btn-icon" title="Desvincular reunião">✕</button>
+                </div>
+                <div class="config-group">
+                  <input type="text" id="lem-titulo" placeholder="Título do lembrete *">
+                </div>
+                <div class="config-group">
+                  <textarea id="lem-descricao" rows="2" placeholder="Descrição (opcional)"></textarea>
+                </div>
+                <div class="config-group config-row" style="gap:10px;">
+                  <input type="datetime-local" id="lem-data-hora" style="flex:1;">
+                  <select id="lem-cliente" style="flex:1;">
+                    <option value="">sem cliente</option>
+                  </select>
+                </div>
+                <div class="config-group config-row" style="gap:10px;">
+                  <select id="lem-recorrencia" style="flex:1;">
+                    <option value="">Não repete</option>
+                    <option value="diaria">Diária</option>
+                    <option value="semanal">Semanal</option>
+                    <option value="mensal">Mensal</option>
+                  </select>
+                </div>
+                <div class="config-group config-row">
+                  <button id="btn-criar-lembrete" class="primary">+ Adicionar lembrete</button>
+                </div>
+                <hr class="config-sep">
+                <div class="config-group config-row" style="justify-content:space-between;">
+                  <label class="check">
+                    <input type="checkbox" id="chk-mostrar-concluidos"> Mostrar concluídos
+                  </label>
+                </div>
+                <div id="lembretes-lista"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══════════ Tela: Config ═══════════ -->
+          <section id="screen-config" class="screen" hidden>
+            <div class="tela-painel">
+              <div class="modal-header">
+                <h3>Configurações</h3>
+              </div>
+              <div class="modal-body">
+                <div class="config-group">
+                  <label class="config-label">Idioma padrão</label>
+                  <select id="cfg-idioma">
+                    <option value="auto">auto</option>
+                    <option value="pt">pt</option>
+                    <option value="en">en</option>
+                    <option value="es">es</option>
+                  </select>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Modelo padrão</label>
+                  <select id="cfg-modelo">
+                    <option value="small">small (rápido)</option>
+                    <option value="medium">medium</option>
+                    <option value="large-v3">large-v3 (preciso)</option>
+                  </select>
+                </div>
+                <div class="config-group config-row">
+                  <label class="check">
+                    <input type="checkbox" id="cfg-comprimir"> Comprimir áudio (opus)
+                  </label>
+                </div>
+                <div class="config-group config-row">
+                  <label class="check">
+                    <input type="checkbox" id="cfg-resumo-auto"> Resumo automático após transcrição
+                  </label>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Diretório de exportação</label>
+                  <input type="text" id="cfg-export-dir" placeholder="/caminho/para/vault">
+                </div>
+                <div class="config-group">
+                  <p class="config-hint">Clientes e tarifas agora são gerenciados na tela <a href="#" id="link-config-clientes">Clientes</a>.</p>
+                </div>
+                <hr class="config-sep">
+                <div class="config-group">
+                  <label class="config-label">Detecção de reunião</label>
+                  <label class="check">
+                    <input type="checkbox" id="cfg-det-ativa"> Detectar reuniões automaticamente
+                  </label>
+                  <label class="check">
+                    <input type="checkbox" id="cfg-det-auto"> Iniciar gravação sozinho
+                  </label>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Apps monitorados (separados por vírgula)</label>
+                  <input type="text" id="cfg-det-apps" placeholder="chrome, teams, zoom, discord">
+                </div>
+                <hr class="config-sep">
+                <div class="config-group">
+                  <label class="config-label">Notificações de lembretes</label>
+                  <label class="check">
+                    <input type="checkbox" id="cfg-notif-ativo"> Avisar sobre prazos de lembretes
+                  </label>
+                </div>
+                <div class="config-group config-row">
+                  <label class="config-label" for="cfg-notif-dia">1º aviso — minutos antes do prazo</label>
+                  <input type="number" id="cfg-notif-dia" min="0" step="1" style="max-width:120px;">
+                </div>
+                <div class="config-group config-row">
+                  <label class="config-label" for="cfg-notif-hora">2º aviso — minutos antes</label>
+                  <input type="number" id="cfg-notif-hora" min="0" step="1" style="max-width:120px;">
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Lembretes vencidos</label>
+                  <select id="cfg-notif-vencido">
+                    <option value="diario">Re-lembrar vencidos 1x/dia</option>
+                    <option value="uma_vez">Avisar vencido só uma vez</option>
+                  </select>
+                </div>
+                <hr class="config-sep">
+                <div class="config-group">
+                  <label class="config-label">LLM Provider</label>
+                  <div style="display:flex;gap:10px;">
+                    <select id="cfg-llm-provider" style="flex:1;">
+                      <option value="none">none</option>
+                      <option value="claude">claude</option>
+                      <option value="openai">openai</option>
+                      <option value="gemini">gemini</option>
+                    </select>
+                    <input type="text" id="cfg-llm-modelo" placeholder="modelo (ex: claude-opus-4-8)" style="flex:2;">
+                  </div>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Chave de API do provedor</label>
+                  <div style="display:flex;gap:10px;">
+                    <input type="password" id="cfg-llm-chave" placeholder="cole a chave aqui" style="flex:2;" autocomplete="off">
+                    <button id="btn-salvar-chave" type="button" style="flex:1;">Salvar chave</button>
+                    <button id="btn-testar-chave" type="button" style="flex:1;">Testar</button>
+                  </div>
+                  <div id="chave-status-display" class="llm-status"></div>
+                </div>
+                <div class="config-group">
+                  <div id="llm-status-display" class="llm-status"></div>
+                </div>
+                <hr class="config-sep">
+                <div class="config-group">
+                  <label class="config-label">Transcrição</label>
+                  <div style="display:flex;gap:10px;">
+                    <select id="cfg-transc-provider" style="flex:1;">
+                      <option value="local">local (offline, Whisper)</option>
+                      <option value="openai">openai (API)</option>
+                    </select>
+                    <input type="text" id="cfg-transc-modelo" placeholder="modelo API (ex: whisper-1)" style="flex:2;">
+                  </div>
+                  <div class="config-hint">Local roda offline no seu computador. API envia o áudio ao provedor (mais rápido, requer chave e conexão).</div>
+                </div>
+                <hr class="config-sep">
+                <div class="config-group">
+                  <label class="config-label">Sincronização (Supabase)</label>
+                  <label class="check">
+                    <input type="checkbox" id="cfg-sync-ativo"> Sincronizar com a nuvem
+                  </label>
+                  <div class="config-hint">Desligado (padrão): seus dados ficam só nesta máquina, nada sai daqui. Ligado: reuniões e lembretes sincronizam com seu projeto Supabase.</div>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">URL do projeto Supabase</label>
+                  <input type="text" id="cfg-sync-url" placeholder="https://xxxx.supabase.co">
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Chave do projeto</label>
+                  <div style="display:flex;gap:10px;">
+                    <input type="password" id="cfg-sync-chave" placeholder="cole a chave aqui" style="flex:2;" autocomplete="off">
+                    <button id="btn-salvar-chave-sync" type="button" style="flex:1;">Salvar chave</button>
+                    <button id="btn-testar-sync" type="button" style="flex:1;">Testar</button>
+                  </div>
+                </div>
+                <div class="config-group">
+                  <label class="config-label">Escopo da sincronização</label>
+                  <select id="cfg-sync-modo">
+                    <option value="tudo">Sincronizar tudo</option>
+                    <option value="selecionados">Só itens marcados</option>
+                  </select>
+                  <div class="config-hint">"Só itens marcados": envia apenas o que estiver marcado com ☁ (lembretes, clientes, projetos, lançamentos e reuniões marcadas individualmente no detalhe).</div>
+                </div>
+                <div class="config-group config-row" style="justify-content:space-between;">
+                  <div id="sync-status-display" class="llm-status"></div>
+                  <button id="btn-sync-agora" type="button">🔄 Sincronizar agora</button>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button id="btn-salvar-config" class="primary">Salvar</button>
+              </div>
+            </div>
+          </section>
+
+        </main>
+
+        <!-- Painel direito: Tarefas de hoje -->
+        <aside class="tasks-panel">
+          <div class="tasks-panel-header">
+            <h3 id="tarefas-titulo">Tarefas de hoje</h3>
+            <a href="#" id="tarefas-ver-todos" class="tarefas-ver-todos">ver todos</a>
+          </div>
+          <div id="tarefas-lista"><p class="dica">Carregando…</p></div>
+          <div class="tarefas-add">
+            <textarea id="tarefa-rapida-input" rows="1" placeholder="Nova tarefa rápida…"></textarea>
+            <button id="btn-tarefa-rapida" title="Adicionar">+</button>
+          </div>
+
+          <!-- Acesso rápido a lembretes com prazo futuro (data + hora) -->
+          <div class="tasks-panel-header tasks-sub-header">
+            <h3 id="proximos-titulo">Próximos lembretes</h3>
+          </div>
+          <div id="lembretes-proximos"><p class="dica">Carregando…</p></div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast de notificação inline -->
   <div id="toast" class="toast" hidden></div>
 
-  <section id="painel-gravar">
-    <div class="form-row">
-      <input type="text" id="titulo" placeholder="Título da reunião" value="reuniao">
-      <select id="modelo">
-        <option value="small">small (rápido)</option>
-        <option value="medium" selected>medium</option>
-        <option value="large-v3">large-v3 (preciso)</option>
-      </select>
-      <!-- Feature 11: idioma na gravação -->
-      <select id="idioma" title="Idioma da gravação">
-        <option value="auto" selected>auto</option>
-        <option value="pt">pt</option>
-        <option value="en">en</option>
-        <option value="es">es</option>
-      </select>
-      <!-- Feature 12: cliente para faturamento -->
-      <input type="text" id="cliente" list="lista-clientes" placeholder="Cliente (faturamento)">
-      <datalist id="lista-clientes"></datalist>
-    </div>
-    <div class="form-row">
-      <label class="check">
-        <input type="checkbox" id="diarizar"> Diarizar (quem falou o quê)
-      </label>
-      <input type="text" id="hotwords" placeholder="hotwords: patrick, zelo, lgpd">
-    </div>
-    <div class="form-row actions">
-      <button id="btn-iniciar" class="primary">● INICIAR GRAVAÇÃO</button>
-      <button id="btn-parar" class="danger" hidden>⏹ PARAR</button>
-      <span id="cronometro" hidden>00:00</span>
-    </div>
-    <p id="msg-status" class="msg"></p>
-  </section>
-
-  <!-- Indicador de fila/processamento — aparece quando há itens em processamento ou na fila -->
-  <div id="status-processamento" hidden></div>
-
-  <main>
-    <aside id="lista-reunioes">
-      <h2>Reuniões</h2>
-      <!-- Feature 2: input de filtro/busca -->
-      <div class="filtro-wrap">
-        <input id="filtro" type="text" placeholder="Filtrar / buscar no conteúdo…" autocomplete="off">
-        <button id="btn-limpar-filtro" class="btn-limpar-filtro" title="Limpar busca" hidden>✕</button>
-      </div>
-      <ul id="ul-reunioes"><li class="vazio">carregando...</li></ul>
-    </aside>
-
-    <section id="detalhes">
-      <div id="placeholder">
-        <p>Selecione uma reunião à esquerda<br>ou inicie uma nova gravação acima.</p>
-      </div>
-
-      <div id="conteudo" hidden>
-        <div class="det-header">
-          <div style="flex:1;min-width:0;">
-            <!-- Feature 5: título editável -->
-            <div id="titulo-view" style="display:flex;align-items:center;gap:8px;">
-              <h2 id="det-titulo"></h2>
-              <button id="btn-editar-titulo" class="btn-icon" title="Editar título">✏️</button>
-            </div>
-            <div id="titulo-edit" style="display:none;align-items:center;gap:8px;">
-              <input id="input-titulo" type="text" style="font-size:16px;font-weight:600;">
-              <button id="btn-salvar-titulo" class="primary" style="padding:6px 12px;">✓</button>
-              <button id="btn-cancelar-titulo" style="padding:6px 12px;">✕</button>
-            </div>
-            <p id="det-meta" class="meta"></p>
-            <!-- Feature 12: cliente editável -->
-            <div id="det-cliente-view">
-              <span id="det-cliente" title="Clique para editar"></span>
-            </div>
-            <div id="det-cliente-edit" style="display:none;align-items:center;gap:8px;">
-              <input id="input-cliente" type="text" list="lista-clientes" style="font-size:12px;padding:4px 8px;">
-            </div>
-          </div>
-          <!-- Feature 8: botão Exportar -->
-          <button id="btn-exportar" class="btn-icon-label" title="Exportar reunião">↗ Exportar</button>
-          <button id="btn-excluir" class="danger-outline" title="Excluir reunião">🗑 Excluir</button>
-          <div id="confirm-excluir" style="display:none;align-items:center;gap:8px;">
-            <span style="font-size:12px;color:var(--text-2)">Excluir?</span>
-            <button class="danger" onclick="confirmarExcluir()">Confirmar</button>
-            <button onclick="cancelarConfirmacaoExcluir()">Cancelar</button>
-          </div>
-        </div>
-
-        <audio id="player" controls></audio>
-
-        <div class="tabs">
-          <button class="tab ativa" data-tab="transcricao">Transcrição</button>
-          <!-- Feature 4: aba Resumo -->
-          <button class="tab" data-tab="resumo">Resumo</button>
-          <button class="tab" data-tab="hotwords">Hotwords</button>
-          <button class="tab" data-tab="reprocessar">Reprocessar</button>
-        </div>
-
-        <div class="tab-content" id="tab-transcricao">
-          <!-- Feature 7: botão copiar transcrição -->
-          <div class="tab-toolbar">
-            <button id="btn-copiar-trans" class="btn-icon-label" title="Copiar transcrição">⎘ Copiar</button>
-          </div>
-          <div id="transcricao-render"></div>
-        </div>
-
-        <!-- Feature 4: aba Resumo -->
-        <div class="tab-content" id="tab-resumo" hidden>
-          <div id="resumo-render"></div>
-          <button id="btn-gerar-resumo" class="primary" hidden>✦ Gerar resumo</button>
-        </div>
-
-        <div class="tab-content" id="tab-hotwords" hidden>
-          <div id="hotwords-render"></div>
-        </div>
-
-        <div class="tab-content" id="tab-reprocessar" hidden>
-          <p class="dica">Reprocessa os arquivos de áudio existentes com novas opções.</p>
-          <div class="form-row">
-            <select id="re-modelo">
-              <option value="small">small</option>
-              <option value="medium" selected>medium</option>
-              <option value="large-v3">large-v3</option>
-            </select>
-            <label class="check">
-              <input type="checkbox" id="re-diarizar"> Diarizar
-            </label>
-            <!-- Feature 11: idioma no reprocessar -->
-            <select id="re-idioma" title="Idioma">
-              <option value="auto" selected>auto</option>
-              <option value="pt">pt</option>
-              <option value="en">en</option>
-              <option value="es">es</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <input type="text" id="re-hotwords" placeholder="hotwords (opcional)">
-          </div>
-          <button id="btn-reprocessar" class="primary">Reprocessar</button>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Feature 9: Modal de Configurações -->
-  <div id="overlay-config" class="modal-overlay" hidden>
-    <div class="modal-config">
-      <div class="modal-header">
-        <h3>⚙️ Configurações</h3>
-        <button id="btn-fechar-config" class="btn-icon">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="config-group">
-          <label class="config-label">Idioma padrão</label>
-          <select id="cfg-idioma">
-            <option value="auto">auto</option>
-            <option value="pt">pt</option>
-            <option value="en">en</option>
-            <option value="es">es</option>
-          </select>
-        </div>
-        <div class="config-group">
-          <label class="config-label">Modelo padrão</label>
-          <select id="cfg-modelo">
-            <option value="small">small (rápido)</option>
-            <option value="medium">medium</option>
-            <option value="large-v3">large-v3 (preciso)</option>
-          </select>
-        </div>
-        <div class="config-group config-row">
-          <label class="check">
-            <input type="checkbox" id="cfg-comprimir"> Comprimir áudio (opus)
-          </label>
-        </div>
-        <div class="config-group config-row">
-          <label class="check">
-            <input type="checkbox" id="cfg-resumo-auto"> Resumo automático após transcrição
-          </label>
-        </div>
-        <div class="config-group">
-          <label class="config-label">Diretório de exportação</label>
-          <input type="text" id="cfg-export-dir" placeholder="/caminho/para/vault">
-        </div>
-        <!-- Feature 12: clientes e valores/hora para relatório -->
-        <div class="config-group">
-          <label class="config-label">Clientes (separados por vírgula)</label>
-          <input type="text" id="cfg-clientes" placeholder="Acme, Beta Corp">
-        </div>
-        <div class="config-group">
-          <label class="config-label">Valores/hora (cliente=valor, um por linha)</label>
-          <textarea id="cfg-valores-hora" rows="3" placeholder="Acme=150&#10;Beta Corp=200"></textarea>
-        </div>
-        <hr class="config-sep">
-        <div class="config-group">
-          <label class="config-label">Detecção de reunião</label>
-          <label class="check">
-            <input type="checkbox" id="cfg-det-ativa"> Detectar reuniões automaticamente
-          </label>
-          <label class="check">
-            <input type="checkbox" id="cfg-det-auto"> Iniciar gravação sozinho
-          </label>
-        </div>
-        <div class="config-group">
-          <label class="config-label">Apps monitorados (separados por vírgula)</label>
-          <input type="text" id="cfg-det-apps" placeholder="chrome, teams, zoom, discord">
-        </div>
-        <hr class="config-sep">
-        <div class="config-group">
-          <label class="config-label">LLM Provider</label>
-          <div style="display:flex;gap:10px;">
-            <select id="cfg-llm-provider" style="flex:1;">
-              <option value="none">none</option>
-              <option value="claude">claude</option>
-              <option value="openai">openai</option>
-              <option value="gemini">gemini</option>
-            </select>
-            <input type="text" id="cfg-llm-modelo" placeholder="modelo (ex: claude-opus-4-8)" style="flex:2;">
-          </div>
-        </div>
-        <div class="config-group">
-          <label class="config-label">Chave de API do provedor</label>
-          <div style="display:flex;gap:10px;">
-            <input type="password" id="cfg-llm-chave" placeholder="cole a chave aqui" style="flex:2;" autocomplete="off">
-            <button id="btn-salvar-chave" type="button" style="flex:1;">Salvar chave</button>
-            <button id="btn-testar-chave" type="button" style="flex:1;">Testar</button>
-          </div>
-          <div id="chave-status-display" class="llm-status"></div>
-        </div>
-        <div class="config-group">
-          <div id="llm-status-display" class="llm-status"></div>
-        </div>
-        <hr class="config-sep">
-        <div class="config-group">
-          <label class="config-label">Transcrição</label>
-          <div style="display:flex;gap:10px;">
-            <select id="cfg-transc-provider" style="flex:1;">
-              <option value="local">local (offline, Whisper)</option>
-              <option value="openai">openai (API)</option>
-            </select>
-            <input type="text" id="cfg-transc-modelo" placeholder="modelo API (ex: whisper-1)" style="flex:2;">
-          </div>
-          <div class="config-hint">Local roda offline no seu computador. API envia o áudio ao provedor (mais rápido, requer chave e conexão).</div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="btn-salvar-config" class="primary">Salvar</button>
-        <button id="btn-fechar-config2">Cancelar</button>
+  <!-- Modal genérico in-app: confirmação e prompt de texto (substitui confirm()/prompt() nativos, que não funcionam bem no Electron) -->
+  <div id="app-modal" class="app-modal-overlay" hidden>
+    <div class="app-modal-card" role="dialog" aria-modal="true">
+      <h3 id="app-modal-titulo"></h3>
+      <p id="app-modal-msg" class="app-modal-msg"></p>
+      <input type="text" id="app-modal-input" class="app-modal-input" hidden>
+      <div class="app-modal-acoes">
+        <button id="app-modal-cancelar" type="button" class="pill pill-outline">Cancelar</button>
+        <button id="app-modal-ok" type="button" class="primary">OK</button>
       </div>
     </div>
   </div>
 
-  <!-- Feature 12: Modal de Relatório de horas -->
-  <div id="overlay-relatorio" class="modal-overlay" hidden>
-    <div class="modal-config">
-      <div class="modal-header">
-        <h3>📊 Relatório de horas</h3>
-        <button id="btn-fechar-relatorio" class="btn-icon">✕</button>
+  <!-- Modal de edição de lançamento (descrição + projeto + data/horários) -->
+  <div id="apont-edit" class="app-modal-overlay" hidden>
+    <div class="app-modal-card" role="dialog" aria-modal="true">
+      <h3>Editar lançamento</h3>
+      <label class="apont-edit-campo">
+        <span>Descrição</span>
+        <input type="text" id="ae-desc" placeholder="Descrição (opcional)">
+      </label>
+      <label class="apont-edit-campo">
+        <span>Projeto</span>
+        <div id="ae-picker"></div>
+      </label>
+      <div class="horas-manual">
+        <label class="horas-campo">
+          <span>Data</span>
+          <input type="date" id="ae-data">
+        </label>
+        <label class="horas-campo">
+          <span>Início</span>
+          <input type="time" id="ae-inicio">
+        </label>
+        <label class="horas-campo">
+          <span>Fim</span>
+          <input type="time" id="ae-fim">
+        </label>
       </div>
-      <div class="modal-body">
-        <div class="config-group config-row" style="gap:10px;">
-          <input type="month" id="rel-mes">
-          <select id="rel-cliente" style="flex:1;">
-            <option value="">todos os clientes</option>
+      <p class="config-hint">Fim menor que início = dia seguinte.</p>
+      <p id="ae-erro" class="config-hint" style="color:var(--danger);" hidden></p>
+      <div class="app-modal-acoes">
+        <button id="ae-cancelar" type="button" class="pill pill-outline">Cancelar</button>
+        <button id="ae-salvar" type="button" class="primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de edição de lembrete -->
+  <div id="lem-edit" class="app-modal-overlay" hidden>
+    <div class="app-modal-card" role="dialog" aria-modal="true">
+      <h3>Editar lembrete</h3>
+      <label class="apont-edit-campo">
+        <span>Título *</span>
+        <input type="text" id="le-titulo" placeholder="Título do lembrete">
+      </label>
+      <label class="apont-edit-campo">
+        <span>Descrição</span>
+        <textarea id="le-descricao" rows="3" placeholder="Descrição (opcional)"></textarea>
+      </label>
+      <div class="horas-manual">
+        <label class="horas-campo" style="flex:1 1 180px;">
+          <span>Prazo (data e hora)</span>
+          <input type="datetime-local" id="le-data-hora">
+        </label>
+        <label class="horas-campo" style="flex:1 1 140px;">
+          <span>Cliente</span>
+          <select id="le-cliente"><option value="">sem cliente</option></select>
+        </label>
+        <label class="horas-campo" style="flex:1 1 140px;">
+          <span>Repetição</span>
+          <select id="le-recorrencia">
+            <option value="">Não repete</option>
+            <option value="diaria">Diária</option>
+            <option value="semanal">Semanal</option>
+            <option value="mensal">Mensal</option>
           </select>
-        </div>
-        <div id="rel-render"></div>
+        </label>
       </div>
-      <div class="modal-footer">
-        <a id="btn-rel-csv" class="btn-icon-label" href="#" target="_blank">⬇ Exportar CSV</a>
-        <button id="btn-fechar-relatorio2">Fechar</button>
+      <p id="le-erro" class="config-hint" style="color:var(--danger);" hidden></p>
+      <div class="app-modal-acoes">
+        <button id="le-cancelar" type="button" class="pill pill-outline">Cancelar</button>
+        <button id="le-salvar" type="button" class="primary">Salvar</button>
       </div>
     </div>
   </div>

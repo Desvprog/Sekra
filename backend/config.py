@@ -39,6 +39,15 @@ PADROES: dict[str, Any] = {
         # Provedor local usa "modelo_padrao" acima. Vazio = padrão do provedor.
         "modelo": "",
     },
+    "sync": {
+        "ativo": False,          # sincronização com Supabase é opt-in; padrão 100% local
+        "url": "",               # URL do projeto Supabase (ex.: https://xxxx.supabase.co)
+        # "tudo": sincroniza todos os registros (comportamento padrão, ignora a
+        # flag por registro). "selecionados": só envia (push) registros com
+        # `sync_habilitado`=True nas 4 tabelas locais e reuniões marcadas
+        # individualmente; pull/merge das tabelas continua igual em ambos os modos.
+        "modo": "tudo",
+    },
     "deteccao": {
         "ativa": True,           # monitora o PulseAudio em busca de reuniões
         "auto_iniciar": False,   # inicia gravação sozinho ao detectar
@@ -46,6 +55,12 @@ PADROES: dict[str, Any] = {
         # do app que abriu o microfone
         "apps": ["chrome", "chromium", "firefox", "brave", "edge", "opera",
                  "vivaldi", "teams", "zoom", "discord", "slack", "skype"],
+    },
+    "notificacoes": {
+        "ativo": True,                  # avisos de prazo de lembretes ligados por padrão
+        "antecedencia_dia_min": 1440,   # 1º aviso: 1 dia (1440 min) antes do prazo
+        "antecedencia_hora_min": 60,    # 2º aviso: 1 hora antes do prazo
+        "vencido_repetir": "diario",    # "diario" (re-lembra 1x/dia) | "uma_vez"
     },
 }
 
