@@ -115,11 +115,15 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: "Reuniões",
+    // A SPA tem barra de janela própria (winbar); o menu padrão
+    // File/Edit/View não tem função aqui.
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.loadURL(`http://127.0.0.1:${PORT}`);
 

@@ -1,41 +1,52 @@
 {
-  "name": "reunioes",
+  "name": "Sekra",
   "version": "1.0.0",
   "description": "Gravação e transcrição de reuniões",
-  "author": "Patrick Cremonese <contato@patrickcremonese.com.br>",
-  "homepage": "https://github.com/patrickcremonese/record-app",
+  "author": "Patrick Cremonese <desvprog@gmail.com>",
+  "homepage": "https://github.com/Desvprog/Sekra",
   "main": "main.js",
   "scripts": {
     "start": "electron . --no-sandbox",
     "build": "electron-builder --linux"
   },
   "build": {
-    "appId": "com.reunioes.app",
-    "productName": "Reuniões",
+    "appId": "com.sekra.app",
+    "productName": "Sekra",
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Utility",
-      "maintainer": "tereza@anne.today",
+      "maintainer": "Patrick Cremonese <desvprog@gmail.com>",
       "icon": "assets/icon.png",
       "desktop": {
-        "Name": "Reuniões",
-        "StartupWMClass": "reunioes"
+        "Name": "Sekra",
+        "StartupWMClass": "sekra"
       }
     },
     "extraResources": [
       {
         "from": "../dist/server",
         "to": "server",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
-    "files": ["main.js", "assets/**"]
+    "files": [
+      "main.js",
+      "assets/**"
+    ]
   },
   "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^35.7.5",
+    "electron-builder": "^25.1.8"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "electron-builder"]
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder"
+    ]
   }
 }

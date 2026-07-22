@@ -9,10 +9,10 @@ importers:
   .:
     devDependencies:
       electron:
-        specifier: ^35.0.0
+        specifier: ^35.7.5
         version: 35.7.5
       electron-builder:
-        specifier: ^25.0.0
+        specifier: ^25.1.8
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
 
 packages:
