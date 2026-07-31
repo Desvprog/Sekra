@@ -20,7 +20,8 @@ binaries_extra = []
 # filtro VAD). collect_all traz esses dados; sem isso o import funciona mas o
 # arquivo some do bundle e só quebra em runtime ao chamar transcribe(vad_filter=True).
 for _pkg in ("faster_whisper", "ctranslate2",
-             "pyannote", "pyannote.audio", "lightning_fabric", "speechbrain", "asteroid_filterbanks"):
+             "pyannote", "pyannote.audio", "lightning_fabric", "speechbrain",
+             "asteroid_filterbanks", "torchcodec"):
     try:
         d, b, h = collect_all(_pkg)
         datas_extra += d; binaries_extra += b; hidden_extra += h

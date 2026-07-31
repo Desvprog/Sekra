@@ -321,6 +321,40 @@ def carregar_hf_token() -> str:
     )
 
 
+def carregar_waveform(audio: Path) -> dict:
+    """Decodifica o áudio para tensor mono float32 usando ffmpeg.
+
+    O pyannote 4.x decodifica arquivos via torchcodec, que depende de libs
+    nativas do ffmpeg e não sobrevive ao bundle do PyInstaller. Passando o
+    áudio já como {'waveform', 'sample_rate'} a decodificação interna é
+    pulada e a diarização funciona igual em dev e no pacote.
+    """
+    import numpy as np
+    import torch
+
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(audio),
+             "-f", "f32le", "-acodec", "pcm_f32le",
+             "-ac", "1", "-ar", str(SAMPLE_RATE), "-"],
+            capture_output=True, check=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("ffmpeg não encontrado — necessário para diarização.")
+    except subprocess.CalledProcessError as e:
+        erro = e.stderr.decode(errors="ignore").strip()[-300:]
+        raise RuntimeError(f"ffmpeg falhou ao decodificar {audio.name}: {erro}")
+
+    amostras = np.frombuffer(r.stdout, dtype=np.float32)
+    if amostras.size == 0:
+        raise RuntimeError(f"Áudio vazio ou ilegível: {audio.name}")
+
+    return {
+        "waveform": torch.from_numpy(amostras.copy()).unsqueeze(0),
+        "sample_rate": SAMPLE_RATE,
+    }
+
+
 def diarizar(audio: Path) -> list[tuple[float, float, str]]:
     try:
         from pyannote.audio import Pipeline
@@ -335,7 +369,7 @@ def diarizar(audio: Path) -> list[tuple[float, float, str]]:
     if pipeline is None:
         raise RuntimeError("Falha ao carregar pipeline. Verifique token e termos aceitos.")
 
-    result = pipeline(str(audio))
+    result = pipeline(carregar_waveform(audio))
     if hasattr(result, "itertracks"):
         diarization = result
     else:
