@@ -145,8 +145,8 @@
                 <button id="btn-toggle-painel" class="btn-toggle" title="Mostrar/ocultar painel de gravação">▲</button>
               </div>
               <div class="form-row">
-                <input type="text" id="cliente" list="lista-clientes" placeholder="Cliente (faturamento)">
-                <input type="text" id="grav-projeto" list="lista-projetos-gravacao" placeholder="Projeto (opcional)">
+                <input type="text" id="cliente" list="lista-clientes" placeholder="Cliente (faturamento)" autocomplete="off">
+                <input type="text" id="grav-projeto" list="lista-projetos-gravacao" placeholder="Projeto (opcional)" autocomplete="off">
                 <datalist id="lista-clientes"></datalist>
                 <datalist id="lista-projetos-gravacao"></datalist>
               </div>
@@ -159,6 +159,7 @@
               <div class="form-row actions">
                 <button id="btn-iniciar" class="primary">● INICIAR GRAVAÇÃO</button>
                 <button id="btn-parar" class="danger" hidden>⏹ PARAR</button>
+                <button id="btn-descartar" class="danger-outline" hidden>🗑 DESCARTAR</button>
                 <span id="cronometro" hidden>00:00</span>
               </div>
               <p id="msg-status" class="msg"></p>
@@ -202,7 +203,8 @@
                         <span id="det-projeto" title="Clique para editar"></span>
                       </div>
                       <div id="det-projeto-edit" style="display:none;align-items:center;gap:8px;">
-                        <input id="input-projeto" type="text" list="lista-projetos-gravacao" style="font-size:12px;padding:4px 8px;">
+                        <input id="input-projeto" type="text" list="lista-projetos-detalhe" autocomplete="off" style="font-size:12px;padding:4px 8px;">
+                        <datalist id="lista-projetos-detalhe"></datalist>
                       </div>
                       <label class="check det-sync-linha" id="det-sync-linha" title="Envia transcrição + resumo desta reunião ao Supabase (nunca o áudio)">
                         <input type="checkbox" id="det-sync-toggle"> ☁ Sincronizar esta reunião na nuvem (transcrição + resumo, sem áudio)

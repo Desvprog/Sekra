@@ -683,6 +683,29 @@ def parar():
     return {"ok": True, "fila_tamanho": pos}
 
 
+@app.post("/api/gravar/descartar")
+def descartar():
+    """Descarta a gravação em andamento: para o processo e apaga a pasta,
+    sem passar pela fila de transcrição."""
+    import shutil
+    with estado.lock:
+        if not estado.gravando:
+            raise HTTPException(409, "Nenhuma gravação ativa")
+        proc = estado.proc
+        pasta = estado.pasta
+        estado.gravando = False
+        estado.proc = None
+        estado.titulo = None
+        estado.inicio = None
+        estado.pasta = None
+        estado.msg = ""
+
+    reuniao.parar_gravacao(proc)
+    if pasta and pasta.exists():
+        shutil.rmtree(pasta, ignore_errors=True)
+    return {"ok": True}
+
+
 @app.post("/api/reunioes/{data}/{slug}/excluir")
 def excluir(data: str, slug: str):
     import shutil

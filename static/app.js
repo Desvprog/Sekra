@@ -242,6 +242,7 @@ async function atualizarStatus() {
     // Botões e cronômetro — INICIAR habilitado mesmo durante processamento/fila
     s.gravando ? ocultar("btn-iniciar") : mostrar("btn-iniciar", "inline-block");
     s.gravando ? mostrar("btn-parar", "inline-block") : ocultar("btn-parar");
+    s.gravando ? mostrar("btn-descartar", "inline-block") : ocultar("btn-descartar");
     $("btn-iniciar").disabled = false;
     s.gravando ? mostrar("cronometro", "inline") : ocultar("cronometro");
     $("cronometro").textContent = fmtCronometro(s.duracao_s);
@@ -662,6 +663,18 @@ async function pararGravacao() {
   }
 }
 
+async function descartarGravacao() {
+  if (!confirm("Descartar esta gravação? O áudio será apagado e não entrará na fila de transcrição.")) return;
+  try {
+    await api("/api/gravar/descartar", { method: "POST" });
+    _gravacaoClienteAtual = "";
+    _gravacaoProjetoAtual = "";
+    await atualizarStatus();
+  } catch (e) {
+    mostrarErro(`Erro ao descartar: ${e.message}`);
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────
 // F1: resolução do cliente da gravação — cliente do projeto selecionado na
 // topbar (_pickerTopbar) tem prioridade; senão consulta a heurística do
@@ -717,21 +730,35 @@ function aceitarSugestaoCliente() {
 // Popula o datalist de projetos do painel de gravação a partir do cliente
 // digitado em #cliente, quando ele corresponde a um cliente cadastrado
 // (com id conhecido). Sem correspondência, o campo de projeto segue livre.
-async function atualizarListaProjetosGravacao() {
-  const nome = $("cliente").value.trim();
-  const clienteObj = Object.values(_clientesMapId).find((c) => c.nome === nome);
-  const dl = $("lista-projetos-gravacao");
+// Popula um <datalist> de projetos a partir do nome de cliente informado.
+// `reqIdRef` é um objeto { atual, meu } usado como guard contra respostas
+// fora de ordem (troca rápida de cliente antes da resposta anterior chegar).
+async function _popularDatalistProjetosPorCliente(nomeCliente, dlId, reqIdRef) {
+  const meuReqId = ++reqIdRef.atual;
+  const clienteObj = Object.values(_clientesMapId).find((c) => c.nome === nomeCliente);
+  const dl = $(dlId);
   if (!clienteObj) {
-    dl.innerHTML = "";
+    if (meuReqId === reqIdRef.atual) dl.innerHTML = "";
     return;
   }
   try {
     const lista = await api(`/api/projetos?cliente_id=${encodeURIComponent(clienteObj.id)}`);
+    if (meuReqId !== reqIdRef.atual) return;
     dl.innerHTML = lista.filter((p) => p.ativo !== false)
       .map((p) => `<option value="${escapeHtml(p.nome)}"></option>`).join("");
   } catch (_) {
-    dl.innerHTML = "";
+    if (meuReqId === reqIdRef.atual) dl.innerHTML = "";
   }
+}
+
+const _reqIdProjetosGravacao = { atual: 0 };
+async function atualizarListaProjetosGravacao() {
+  await _popularDatalistProjetosPorCliente($("cliente").value.trim(), "lista-projetos-gravacao", _reqIdProjetosGravacao);
+}
+
+const _reqIdProjetosDetalhe = { atual: 0 };
+async function atualizarListaProjetosDetalhe() {
+  await _popularDatalistProjetosPorCliente(clienteAtualReuniao, "lista-projetos-detalhe", _reqIdProjetosDetalhe);
 }
 
 function _iniciaisCliente(nome) {
@@ -964,6 +991,7 @@ function iniciarEdicaoProjeto() {
   mostrar("det-projeto-edit", "flex");
   const inp = $("input-projeto");
   inp.value = projetoAtualReuniao;
+  atualizarListaProjetosDetalhe();
   inp.focus();
   inp.select();
 }
@@ -3429,6 +3457,7 @@ async function criarTarefaRapida() {
 // ────────────────────────────────────────────────────────────────────
 $("btn-iniciar").addEventListener("click", iniciarGravacao);
 $("btn-parar").addEventListener("click", pararGravacao);
+$("btn-descartar").addEventListener("click", descartarGravacao);
 $("btn-reprocessar").addEventListener("click", reprocessar);
 $("btn-excluir").addEventListener("click", pedirConfirmacaoExcluir);
 $("btn-copiar-trans").addEventListener("click", copiarTranscricao);
